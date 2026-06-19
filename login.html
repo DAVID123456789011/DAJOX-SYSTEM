@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>DAJOX SYSTEM - Autenticación Seguro</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="display:flex; justify-content:center; align-items:center; min-height:100vh; padding: 20px;">
+    
+    <div class="card" style="width:100%; max-width:460px;">
+        <h2 style="text-align:center; margin-bottom:20px;">DAJOX <span style="color:var(--acento-morado);">SYSTEM</span></h2>
+        
+        <div id="formLogin">
+            <div style="margin-bottom:15px;">
+                <label>Correo Electrónico (Gmail):</label>
+                <input type="email" id="txtEmail" placeholder="usuario@gmail.com" style="width:100%; padding:10px; background:var(--bg-inputs); border:1px solid var(--borde); color:white; border-radius:4px; margin-top:5px;">
+            </div>
+
+            <div style="margin-bottom:15px;">
+                <label>Contraseña:</label>
+                <input type="password" id="txtPass" placeholder="••••••••" style="width:100%; padding:10px; background:var(--bg-inputs); border:1px solid var(--borde); color:white; border-radius:4px; margin-top:5px;">
+            </div>
+
+            <div style="margin-bottom:20px;">
+                <label>Selecciona tu Rol Académico:</label>
+                <div style="display:flex; gap:20px; margin-top:8px;">
+                    <label><input type="radio" name="rbRol" value="INSTRUCTOR" checked> Instructor CIMM</label>
+                    <label><input type="radio" name="rbRol" value="APRENDIZ"> Aprendiz SENA</label>
+                </div>
+            </div>
+
+            <button id="btnIngresar" class="btn-primary" style="width:100%; padding:12px;">Solicitar Enlace de Acceso</button>
+        </div>
+
+        <div id="pantallaGmail" class="hidden">
+            <div style="text-align:center; margin-bottom:15px;">
+                <p style="color:var(--acento-verde); font-weight:bold;">¡Enlace generado!</p>
+                <p style="font-size:0.9rem; color:var(--texto-mutado);">Para proteger el sistema DAJOX, debes abrir el correo de verificación enviado.</p>
+            </div>
+            
+            <div class="gmail-box">
+                <div style="display:flex; justify-content:between; font-size:0.8rem; border-bottom:1px solid #ddd; padding-bottom:5px; margin-bottom:10px; color:#555;">
+                    <strong>De:</strong> security@dajox.system &nbsp;|&nbsp; <strong>Para:</strong> <span id="lblGmailDestino"></span>
+                </div>
+                <h4 style="color:#222; margin-bottom:8px;">🔑 Confirmación de credenciales - DAJOX SYSTEM</h4>
+                <p style="font-size:0.85rem; color:#444; margin-bottom:15px;">Has solicitado ingresar a la plataforma de mantenimiento y TIC. Haz clic en el botón inferior para autorizar este dispositivo e ingresar de inmediato.</p>
+                
+                <button id="btnConfirmarGmail" class="btn-primary" style="background:#db4437; width:100%; padding:10px; font-size:0.9rem;">✓ ACEPTAR VERIFICACIÓN Y ENTRAR</button>
+            </div>
+            <button id="btnCancelarGmail" style="background:none; border:none; color:var(--texto-mutado); width:100%; text-align:center; margin-top:15px; cursor:pointer; text-decoration:underline;">Volver al formulario</button>
+        </div>
+
+    </div>
+
+    <script src="auth.js"></script>
+</body>
+</html>

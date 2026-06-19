@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Evaluación Interactiva - DAJOX SYSTEM</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header style="background:var(--bg-tarjetas); padding:15px 30px; display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid var(--acento-morado);">
+        <h2>Examen Modular Activo</h2>
+        <div style="font-size:1.2rem; color:var(--acento-rojo); font-weight:bold;">Tiempo Restante: <span id="clock">10:00</span></div>
+    </header>
+
+    <main style="max-width:800px; margin:30px auto; padding:0 20px;">
+        <div id="quizContainer"></div>
+        <button id="btnEnviarQuiz" class="btn-primary" style="width:100%; margin-top:20px; padding:15px; background:var(--acento-verde);">Finalizar Evaluación Técnica</button>
+    </main>
+
+    <script src="questions.js"></script>
+    <script>
+        let examenPreguntas = [];
+        let r_claseId, r_examId, r_modo, r_usuario;
+        let timerSeconds = 600;
+
+        document.addEventListener("DOMContentLoaded", () => {
+            // 1. CONTROL ESTRICTO DE ACCESO (Evita alertas molestas si no hay sesión activa)
+            r_usuario = JSON.parse(localStorage.getItem("usuarioActual"));
+            if(!r_usuario) { 
+                window.location.href = "login.html"; 
+                return; 
+            }
+
+            const params = new URLSearchParams(window.location.search);
+            r_claseId = params.get("claseId");
+            r_examId = params.get("examId");
+            r_modo = params.get("modo");
+
+            if(!r_claseId || !r_examId) {
+                window.location.href = "dashboard.html";
+                return;
+            }
+
+            const clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
+            const clase = clases.find(c => c.id === r_claseId);
+            
+            if(!clase || !clase.examenesCreadosEstructurados) {
+                alert("Error de integridad de datos en el examen.");
+                window.location.href = "dashboard.html";
+                return;
+            }
+
+            const examenTarget = clase.examenesCreadosEstructurados.find(e => e.idExamen === r_examId);
+            if(!examenTarget) {
+                alert("No se localizó la evaluación especificada.");
+                window.location.href = "dashboard.html";
+                return;
+            }
+
+            // Cargar las preguntas dinámicas configuradas por el instructor
+            examenPreguntas = examenTarget.preguntas;
+
+            const container = document.getElementById("quizContainer");
+            container.innerHTML = "";
+
+            examenPreguntas.forEach((p, idx) => {
+                const pDiv = document.createElement("div");
+                pDiv.className = "card";
+                pDiv.style.marginBottom = "20px";
+                pDiv.innerHTML = `
+                    <p style="font-weight:600; font-size:1.05rem; margin-bottom:12px;">${idx + 1}. ¿${p.pregunta}</p>
+                    ${p.image ? `<img src="${p.image}" style="max-height:220px; max-width:100%; object-fit:contain; margin-bottom:12px; display:block; border-radius:6px; border:1px solid var(--borde);">` : ''}
+                    <div style="display:flex; flex-direction:column; gap:8px;">
+                        ${p.opciones.map((op, oIdx) => {
+                            const esImagenOp = op.startsWith("http") || op.startsWith("data:image");
+                            return `
+                                <label style="background:var(--bg-inputs); border:1px solid var(--borde); padding:12px 14px; border-radius:6px; display:flex; align-items:center; gap:10px; cursor:pointer;">
+                                    <input type="radio" name="p_${idx}" value="${oIdx}">
+                                    <span>${String.fromCharCode(65 + oIdx)}. ${esImagenOp ? `<img src="${op}" style="max-height:80px; border-radius:4px; display:inline-block; vertical-align:middle; margin-left:6px;">` : op}</span>
+                                </label>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                container.appendChild(pDiv);
+            });
+
+            const clock = document.getElementById("clock");
+            const tInterval = setInterval(() => {
+                timerSeconds--;
+                let mins = Math.floor(timerSeconds / 60);
+                let secs = timerSeconds % 60;
+                clock.textContent = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                if(timerSeconds <= 0) {
+                    clearInterval(tInterval);
+                    alert("Tiempo límite alcanzado.");
+                    calificarYTerminar();
+                }
+            }, 1000);
+
+            document.getElementById("btnEnviarQuiz").onclick = () => {
+                clearInterval(tInterval);
+                calificarYTerminar();
+            };
+        });
+
+        function calificarYTerminar() {
+            let correctas = 0;
+            let validacion = true;
+
+            for(let i = 0; i < examenPreguntas.length; i++) {
+                if(!document.querySelector(`input[name="p_${i}"]:checked`)) {
+                    validacion = false;
+                    break;
+                }
+            }
+
+            if(!validacion) {
+                alert("Atención: Debe rellenar todos los ítems antes de procesar el envío.");
+                window.location.reload();
+                return;
+            }
+
+            const clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
+            let claseIdx = clases.findIndex(c => c.id === r_claseId);
+            
+            if(claseIdx !== -1) {
+                if(!clases[claseIdx].answersLog) clases[claseIdx].answersLog = [];
+
+                examenPreguntas.forEach((p, idx) => {
+                    const checked = document.querySelector(`input[name="p_${idx}"]:checked`);
+                    const valorElegido = parseInt(checked.value);
+                    const acierto = (valorElegido === p.correcta);
+                    if(acierto) correctas++;
+
+                    // Registrar desglose individual para auditoría del instructor
+                    clases[claseIdx].answersLog.push({
+                        alumno: r_usuario.email,
+                        tipo: 'pregunta_examen_interna',
+                        idMeta: r_examId,
+                        enunciado: p.pregunta,
+                        opciones: p.opciones,
+                        seleccionada: valorElegido,
+                        correcta: p.correcta,
+                        esCorrecto: acierto,
+                        image: p.image || ""
+                    });
+                });
+
+                const notaPorcentaje = Math.round((correctas / examenPreguntas.length) * 100);
+
+                // Registrar cabecera del examen total
+                clases[claseIdx].answersLog.push({
+                    alumno: r_usuario.email,
+                    tipo: 'examen_total',
+                    idMeta: r_examId,
+                    enunciado: `Examen Estructurado Completo - Modo: ${r_modo.toUpperCase()}`,
+                    nota: notaPorcentaje,
+                    timestamp: Date.now()
+                });
+
+                localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+                alert(`Evaluación finalizada con éxito técnico. Tu puntuación: ${notaPorcentaje}%`);
+            }
+
+            window.location.href = "dashboard.html";
+        }
+    </script>
+</body>
+</html>

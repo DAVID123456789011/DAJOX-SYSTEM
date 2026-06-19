@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>DAJOX SYSTEM - Enrutando</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body style="display:flex; justify-content:center; align-items:center; height:100vh;">
+    <div style="text-align: center;">
+        <h1>DAJOX <span style="color:var(--acento-morado);">SYSTEM</span></h1>
+        <p style="color: var(--texto-mutado); margin-top:10px;">Verificando credenciales de acceso...</p>
+    </div>
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const usuario = localStorage.getItem("usuarioActual");
+            if (usuario) {
+                window.location.href = "dashboard.html";
+            } else {
+                window.location.href = "login.html";
+            }
+        });
+    </script>
+</body>
+</html>

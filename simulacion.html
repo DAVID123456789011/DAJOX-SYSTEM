@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>DAJOX SYSTEM - Ensamble Placas</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header style="background:var(--bg-tarjetas); padding:15px 30px; display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid var(--acento-morado);">
+        <h1>Módulo Práctico: Armado de Placas Madre</h1>
+        <button class="btn-primary" style="background:var(--acento-rojo);" id="btnAbandonar">Abandonar Práctica</button>
+    </header>
+
+    <main style="max-width:1100px; margin:30px auto; padding:0 20px;">
+        <div class="card">
+            <h2>Arrastra las tarjetas y componentes de hardware hacia sus slots correctos</h2>
+            <div class="canvas-simulacion" style="margin-top:20px;">
+                <div class="banco-piezas" id="bancoPiezas"></div>
+                <div id="tableroEnsamble" style="position:relative; height:450px; background:#1b1b22; border:2px dashed var(--borde); border-radius:8px;">
+                    <div class="zona-soltar" id="slot_PZ1" data-target="PZ1" style="position:absolute; top:40px; left:50px; width:180px; padding:15px; border:2px solid white; text-align:center;">SLOT DE CPU</div>
+                    <div class="zona-soltar" id="slot_PZ2" data-target="PZ2" style="position:absolute; top:40px; left:280px; width:180px; padding:15px; border:2px solid white; text-align:center;">BANCOS DE MEMORIA RAM</div>
+                    <div class="zona-soltar" id="slot_PZ3" data-target="PZ3" style="position:absolute; top:200px; left:50px; width:180px; padding:15px; border:2px solid white; text-align:center;">PUERTO PCI EXPRESS GPU</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="piezas.js"></script>
+    <script src="simuladorGrafico.js"></script>
+</body>
+</html>
