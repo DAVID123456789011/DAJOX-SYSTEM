@@ -7,10 +7,10 @@
 </head>
 <body>
     <header style="background:var(--bg-tarjetas); padding:18px 30px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--borde);">
-        <h2 style="font-weight:800; letter-spacing:-0.03em;">DAJOX <span style="color:var(--acento-morado)">SYSTEM</span></h2>
+        <h2 style="font-family:'Orbitron',sans-serif;letter-spacing:0.12em;font-size:1rem;">DAJOX <span style="color:var(--neon-cyan);text-shadow:0 0 12px rgba(0,212,255,0.7);">SYSTEM</span></h2>
         <div>
             <span id="lblUser" style="font-weight:600; margin-right:10px;"></span>
-            <span id="lblRol" style="color:var(--texto-mutado); font-size:0.85rem; margin-right:20px; background:var(--bg-inputs); padding:4px 8px; border-radius:4px;"></span>
+            <span id="lblRol" style="color:var(--texto-mutado); font-size:0.85rem; margin-right:20px; background:var(--bg-inputs); padding:4px 10px; border-radius:4px; font-family:Share Tech Mono,monospace; font-size:0.75rem; letter-spacing:0.08em; color:var(--neon-cyan); background:rgba(0,212,255,0.08); border:1px solid rgba(0,212,255,0.2);"></span>
             <button class="btn-primary" style="background:var(--acento-rojo);" id="btnOut">Cerrar Sesión</button>
         </div>
     </header>
@@ -19,28 +19,28 @@
         
         <section id="sectInstructor" class="hidden">
             <div class="card">
-                <h3 style="margin-bottom:12px;">Creación de Ambientes Técnicos de Formación</h3>
+                <h3 style="margin-bottom:12px;font-family:'Orbitron',sans-serif;font-size:0.85rem;letter-spacing:0.08em;color:var(--neon-cyan);">// CREACION DE AMBIENTES TECNICOS</h3>
                 <div style="display:flex; gap:15px; flex-wrap:wrap;">
-                    <input type="text" id="insNombre" placeholder="Nombre de la Asignatura / Módulo" class="input-dajox" style="flex:2;">
-                    <input type="text" id="insFicha" placeholder="Ficha / Grupo" class="input-dajox" style="flex:1;">
+                    <input type="text" id="insNombre" placeholder="// NOMBRE DE LA ASIGNATURA / MODULO" class="input-dajox" style="flex:2;">
+                    <input type="text" id="insFicha" placeholder="// FICHA / GRUPO" class="input-dajox" style="flex:1;">
                     <button id="btnCrearClase" class="btn-primary">Generar Clase Autorizada</button>
                 </div>
             </div>
 
-            <h3 style="font-size:1.2rem; font-weight:700;">Ambientes Vigentes en Ejecución</h3>
+            <h3 style="font-size:0.88rem;font-family:'Orbitron',sans-serif;letter-spacing:0.08em;color:var(--neon-cyan);margin-top:8px;">// AMBIENTES VIGENTES EN EJECUCION</h3>
             <div id="listaClasesInstructor" class="grid-clases"></div>
         </section>
 
         <section id="sectMainAprendiz" class="hidden">
             <div class="card">
-                <h3 style="margin-bottom:12px;">Vincularse a un Ambiente de Formación</h3>
+                <h3 style="margin-bottom:12px;font-family:'Orbitron',sans-serif;font-size:0.85rem;letter-spacing:0.08em;color:var(--neon-cyan);">// VINCULARSE A AMBIENTE</h3>
                 <div style="display:flex; gap:15px;">
-                    <input type="text" id="apCodigo" placeholder="Ingrese el Código de la Ficha (Ej: CLASE-XXXX)" class="input-dajox">
+                    <input type="text" id="apCodigo" placeholder="// CODIGO DE ENLACE: CLASE-XXXX" class="input-dajox">
                     <button id="btnUnirse" class="btn-primary" style="background:var(--acento-azul);">Vincular Formación</button>
                 </div>
             </div>
 
-            <h3 style="font-size:1.2rem; font-weight:700;">Mis Asignaturas Activas</h3>
+            <h3 style="font-size:0.88rem;font-family:'Orbitron',sans-serif;letter-spacing:0.08em;color:var(--neon-cyan);margin-top:8px;">// MIS CLASES ACTIVAS</h3>
             <div id="listaClasesAprendiz" class="grid-clases"></div>
         </section>
 
@@ -50,5 +50,5 @@
 
     <script src="questions.js"></script>
     <script src="script.js"></script>
-</body>
+    </body>
 </html>
