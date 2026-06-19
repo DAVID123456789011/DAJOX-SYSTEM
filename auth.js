@@ -95,6 +95,17 @@ function goToPassword() {
     document.getElementById("inputPass").value = "";
     showPhase("phasePassword");
     setTimeout(() => document.getElementById("inputPass").focus(), 100);
+
+    // Boton de reset si ya tiene contrasena registrada
+    const credKey = "dajox_cred_" + currentEmail;
+    const resetBtn = document.getElementById("btnResetPass");
+    if (resetBtn) {
+        if (localStorage.getItem(credKey)) {
+            resetBtn.style.display = "inline-block";
+        } else {
+            resetBtn.style.display = "none";
+        }
+    }
 }
 
 function goToGmail() {
@@ -119,10 +130,41 @@ function handleEmailNext() {
 function handlePasswordNext() {
     const pass = document.getElementById("inputPass").value.trim();
     if (!pass) {
-        alert("Ingresa tu contraseña.");
+        alert("Ingresa tu contrasena.");
         return;
     }
     const role = document.querySelector('input[name="rolPass"]:checked').value;
+
+    // Validacion real de contrasena
+    const credKey = "dajox_cred_" + currentEmail;
+    const stored  = localStorage.getItem(credKey);
+
+    if (!stored) {
+        // Primer inicio de sesion: registrar credenciales
+        localStorage.setItem(credKey, JSON.stringify({ password: pass, role: role }));
+    } else {
+        const cred = JSON.parse(stored);
+        if (cred.password !== pass) {
+            const inputPass = document.getElementById("inputPass");
+            inputPass.value = "";
+            inputPass.style.borderColor = "var(--neon-pink, #ff2d55)";
+            inputPass.focus();
+            // Mostrar error inline en lugar de alert
+            let errEl = document.getElementById("passError");
+            if (!errEl) {
+                errEl = document.createElement("p");
+                errEl.id = "passError";
+                errEl.style.cssText = "color:#ff2d55;font-size:0.82rem;margin-top:6px;text-align:center;";
+                inputPass.parentNode.insertBefore(errEl, inputPass.nextSibling);
+            }
+            errEl.textContent = "Contrasena incorrecta. Intentalo de nuevo.";
+            return;
+        }
+        // Limpiar error si existia
+        const errEl = document.getElementById("passError");
+        if (errEl) errEl.remove();
+    }
+
     const token = "DJX-" + Math.random().toString(36).substr(2, 9).toUpperCase();
     tempUsuario = { email: currentEmail, role, token };
     addSavedAccount(currentEmail, role);
@@ -136,6 +178,19 @@ function handleConfirm() {
 }
 
 // ── Inicialización ────────────────────────────────────────────────────────────
+function resetPassword() {
+    if (!confirm("Restablecer la contrasena de " + currentEmail + "? El proximo login creara una nueva.")) return;
+    localStorage.removeItem("dajox_cred_" + currentEmail);
+    const errEl = document.getElementById("passError");
+    if (errEl) errEl.remove();
+    document.getElementById("inputPass").style.borderColor = "";
+    document.getElementById("inputPass").placeholder = "Crea una nueva contrasena";
+    document.getElementById("inputPass").focus();
+    const btn = document.getElementById("btnResetPass");
+    if (btn) btn.style.display = "none";
+}
+
+
 document.addEventListener("DOMContentLoaded", () => {
     // Si ya hay sesión activa, redirigir directo
     if (localStorage.getItem("usuarioActual")) {
