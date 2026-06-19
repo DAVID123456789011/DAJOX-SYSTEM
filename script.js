@@ -1,23 +1,33 @@
 /* ==========================================================================
-   DAJOX SYSTEM - CÓDIGO NÚCLEO PRINCIPAL CON SIMULADOR Y RENDIMIENTO GLOBAL
+   DAJOX SYSTEM — SCRIPT PRINCIPAL COMPLETO
    ========================================================================== */
 let appState = { user: null, clases: [] };
 
+function syncData() {
+    let raw = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
+    const seen = {};
+    raw.forEach(function(c) { seen[c.id] = c; });
+    appState.clases = Object.values(seen);
+    localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
+}
+function guardarDatos() {
+    localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
+    syncData();
+}
+
+/* ── ARRANQUE ── */
 window.onload = function() {
-    const session = localStorage.getItem("usuarioActual");
-    if(!session) { window.location.href = "login.html"; return; }
+    var session = localStorage.getItem("usuarioActual");
+    if (!session) { window.location.href = "login.html"; return; }
     appState.user = JSON.parse(session);
     document.getElementById("lblUser").textContent = appState.user.email;
     document.getElementById("lblRol").textContent = appState.user.role;
-
-    document.getElementById("btnOut").onclick = () => {
+    document.getElementById("btnOut").onclick = function() {
         localStorage.removeItem("usuarioActual");
         window.location.href = "login.html";
     };
-
     syncData();
-
-    if(appState.user.role === "INSTRUCTOR") {
+    if (appState.user.role === "INSTRUCTOR") {
         document.getElementById("sectInstructor").classList.remove("hidden");
         initInstructor();
     } else {
@@ -26,30 +36,24 @@ window.onload = function() {
     }
 };
 
-function syncData() {
-    appState.clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
-}
-
-function guardarDatos() {
-    localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
-    syncData();
-}
-
-// --- LÓGICA DEL INSTRUCTOR ---
+/* ==========================================================================
+   INSTRUCTOR
+   ========================================================================== */
 function initInstructor() {
-    document.getElementById("btnCrearClase").onclick = () => {
-        const nombre = document.getElementById("insNombre").value.trim();
-        const ficha = document.getElementById("insFicha").value.trim();
-        if(!nombre || !ficha) { return; }
-
-        const nuevaClase = {
-            id: "CLASE-" + Date.now(),
-            nombre: nombre, ficha: ficha,
-            codigo: "NX-" + Math.floor(1000 + Math.random() * 9000),
+    document.getElementById("btnCrearClase").onclick = function() {
+        var nom = document.getElementById("insNombre").value.trim();
+        var fic = document.getElementById("insFicha").value.trim();
+        if (!nom || !fic) return alert("Completa nombre y ficha");
+        appState.clases.push({
+            id: "CLASE-" + Math.floor(Math.random() * 9000 + 1000),
+            nombre: nom, ficha: fic,
             instructor: appState.user.email,
-            estudiantes: [], preguntasCargadas: [], examenesCreadosEstructurados: [], answersLog: []
-        };
-        appState.clases.push(nuevaClase);
+            answersLog: [],
+            examenesCreadosEstructurados: [],
+            preguntasIndividuales: [],
+            montajes: [],
+            inscritos: []
+        });
         guardarDatos();
         document.getElementById("insNombre").value = "";
         document.getElementById("insFicha").value = "";
@@ -60,1030 +64,1000 @@ function initInstructor() {
 
 function renderInstructorClases() {
     syncData();
-    const contenedor = document.getElementById("listaClasesInstructor");
-    const filtradas = appState.clases.filter(c => c.instructor === appState.user.email);
-    contenedor.innerHTML = "";
-    
-    filtradas.forEach(c => {
-        const totalEstudiantes = c.estudiantes ? c.estudiantes.length : 0;
-        const div = document.createElement("div");
-        div.className = "card";
-        div.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:6px;">
-                <h4 style="font-size:1.1rem; margin:0;">${c.nombre.toUpperCase()}</h4>
-                <button class="btn-primary" style="background:var(--acento-rojo); padding:4px 10px; font-size:0.8rem;" onclick="eliminarClaseAmbiente('${c.id}')">🗑 Eliminar Ficha</button>
-            </div>
-            <p style="color:var(--texto-mutated || #a1a1aa); font-size:0.85rem; margin-bottom:4px;">Ficha Técnica: ${c.ficha}</p>
-            <p style="color:var(--acento-morado); font-size:0.85rem; margin-bottom:4px; font-weight:600;">Aprendices Inscritos: ${totalEstudiantes}</p>
-            <p style="color:var(--acento-verde); font-weight:700; font-size:0.95rem; margin-bottom:16px;">CÓDIGO DE ENLACE: ${c.codigo}</p>
-            <div style="display:flex; flex-direction:column; gap:8px; width:100%;">
-                <button class="btn-primary" style="background:var(--acento-azul); width:100%;" onclick="abrirMenuPreguntas('${c.id}')">1. Gestionar Banco Preguntas</button>
-                <button class="btn-primary" style="background:var(--acento-morado); width:100%;" onclick="abrirMenuExamenes('${c.id}')">2. Publicar Nuevos Exámenes</button>
-                <button class="btn-primary" style="background:#1e1b4b; color:#6366f1; border:1px solid #4338ca; width:100%;" onclick="verListaAlumnosDetallada('${c.id}')">👥 Ver Aprendices Unidos</button>
-                <button class="btn-primary" style="background:#27272a; color:#fff; width:100%;" onclick="verPuntuacionesAlumnos('${c.id}')">3. Ver Puntuaciones de Alumnos</button>
-                <button class="btn-primary" style="background:var(--acento-verde); color:#fff; width:100%;" onclick="verRendimientoGlobalAlumnos('${c.id}')">📊 Ver el Rendimiento Global de cada Aprendiz</button>
-            </div>
-        `;
-        contenedor.appendChild(div);
+    var misClases = appState.clases.filter(function(c) { return c.instructor === appState.user.email; });
+    var cont = document.getElementById("listaClasesInstructor");
+    cont.innerHTML = "";
+    if (misClases.length === 0) {
+        cont.innerHTML = '<p style="color:var(--texto-mutado);margin-top:14px;font-size:0.85rem;letter-spacing:0.08em;">// NO HAY CLASES CREADAS AUN</p>';
+        return;
+    }
+    misClases.forEach(function(clase) {
+        var inscritos = (clase.inscritos || []).length;
+        var card = document.createElement("div");
+        card.className = "card-clase-ins";
+        card.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;">' +
+                '<div>' +
+                    '<div class="clase-nombre">' + clase.nombre.toUpperCase() + '</div>' +
+                    '<span style="font-size:0.72rem;color:var(--texto-mutado);letter-spacing:0.1em;">AMBIENTE DE FORMACION TECNICA</span>' +
+                '</div>' +
+                '<button class="btn-eliminar" data-id="' + clase.id + '">ELIMINAR</button>' +
+            '</div>' +
+            '<div class="sep-neon"></div>' +
+            '<p class="meta-label">FICHA: <span style="color:var(--texto-principal);">' + clase.ficha + '</span></p>' +
+            '<p class="badge-inscritos">APRENDICES INSCRITOS: ' + inscritos + '</p>' +
+            '<p class="codigo-neon">CODIGO: ' + clase.id + '</p>' +
+            '<div class="btns-accion">' +
+                '<button class="btn-accion btn-accion-azul" data-panel="preguntas" data-id="' + clase.id + '">01 // GESTIONAR BANCO DE PREGUNTAS</button>' +
+                '<button class="btn-accion btn-accion-morado" data-panel="examenes" data-id="' + clase.id + '">02 // PUBLICAR NUEVOS EXAMENES</button>' +
+                '<button class="btn-accion btn-accion-indigo btn-ver-inscritos" data-id="' + clase.id + '">/// VER APRENDICES UNIDOS</button>' +
+                '<button class="btn-accion btn-accion-dark" data-panel="resultados" data-id="' + clase.id + '">03 // VER PUNTUACIONES DE ALUMNOS</button>' +
+                '<button class="btn-accion btn-accion-verde" data-panel="resultados" data-id="' + clase.id + '">RENDIMIENTO GLOBAL DE APRENDICES</button>' +
+            '</div>';
+
+        card.querySelector(".btn-eliminar").onclick = function() { eliminarClase(this.dataset.id); };
+        card.querySelectorAll(".btn-accion[data-panel]").forEach(function(btn) {
+            btn.onclick = function() { abrirPanelInstructor(this.dataset.id, this.dataset.panel); };
+        });
+        card.querySelector(".btn-ver-inscritos").onclick = function() { verAprendicesInscritos(this.dataset.id); };
+
+        cont.appendChild(card);
     });
 }
 
-function eliminarClaseAmbiente(claseId) {
-    if(confirm("¿Está completamente seguro de eliminar esta ficha de formación? Se borrarán de forma irreversible todos los registros de alumnos, notas y configuraciones del simulador.")) {
-        syncData();
-        appState.clases = appState.clases.filter(c => c.id !== claseId);
-        guardarDatos();
+function eliminarClase(claseId) {
+    if (!confirm("Eliminar esta clase? No se puede deshacer.")) return;
+    appState.clases = appState.clases.filter(function(c) { return c.id !== claseId; });
+    guardarDatos();
+    renderInstructorClases();
+}
+
+function verAprendicesInscritos(claseId) {
+    syncData();
+    var clase = appState.clases.find(function(c) { return c.id === claseId; });
+    if (!clase) return;
+    var inscritos = clase.inscritos || [];
+    var overlay = document.createElement("div");
+    overlay.className = "neon-overlay";
+    var items = inscritos.length === 0
+        ? '<p style="color:var(--texto-mutado);">// Ningun aprendiz se ha unido aun.</p>'
+        : inscritos.map(function(e, i) { return '<div class="item-inscrito">' + (i+1) + '. ' + e + '</div>'; }).join('');
+    overlay.innerHTML =
+        '<div class="neon-modal">' +
+            '<button class="btn-cerrar-modal" id="btnCerrarAI">✕</button>' +
+            '<h4 style="margin-bottom:16px;">APRENDICES EN ' + clase.nombre.toUpperCase() + '</h4>' +
+            items +
+        '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector("#btnCerrarAI").onclick = function() { document.body.removeChild(overlay); };
+}
+
+function abrirPanelInstructor(claseId, tabInicial) {
+    syncData();
+    var clase = appState.clases.find(function(c) { return c.id === claseId; });
+    if (!clase) return;
+    var panel = document.getElementById("contenedorPestanaFlotante");
+    panel.classList.remove("hidden");
+    panel.innerHTML =
+        '<div class="neon-overlay">' +
+            '<div class="neon-modal" style="max-width:940px;width:100%;">' +
+                '<button class="btn-cerrar-modal" id="btnCerrarPanel">✕</button>' +
+                '<h3 style="margin-bottom:4px;">' + clase.nombre.toUpperCase() + '</h3>' +
+                '<p style="color:var(--texto-mutado);font-size:0.8rem;margin-bottom:18px;letter-spacing:0.06em;">FICHA: ' + clase.ficha + ' &nbsp;|&nbsp; CODIGO: <span class="codigo-neon">' + clase.id + '</span></p>' +
+                '<div class="tabs-bar">' +
+                    '<button class="tab-ins btn-primary" data-tab="preguntas">PREGUNTAS</button>' +
+                    '<button class="tab-ins btn-primary" data-tab="examenes" style="background:var(--neon-cyan);color:#000;">EXAMENES</button>' +
+                    '<button class="tab-ins btn-primary" data-tab="montaje" style="background:var(--neon-purple);">MONTAJE</button>' +
+                    '<button class="tab-ins btn-primary" data-tab="resultados" style="background:var(--neon-green);color:#000;">RESULTADOS</button>' +
+                '</div>' +
+                '<div id="tabContenido"></div>' +
+            '</div>' +
+        '</div>';
+
+    document.getElementById("btnCerrarPanel").onclick = function() {
+        panel.innerHTML = "";
+        panel.classList.add("hidden");
         renderInstructorClases();
-    }
-}
-
-function verListaAlumnosDetallada(claseId) {
-    syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-
-    let htmlAlumnos = "";
-    if(!clase.estudiantes || clase.estudiantes.length === 0) {
-        htmlAlumnos = "<p style='color:var(--texto-mutado); font-style:italic; text-align:center; padding:10px;'>No hay aprendices registrados en esta ficha todavía.</p>";
-    } else {
-        clase.estudiantes.forEach((estudianteEmail) => {
-            const isOnline = (estudianteEmail === appState.user.email) || (Math.random() > 0.4); 
-            const colorTexto = isOnline ? "#00f0ff" : "#a1a1aa";
-            const estadoBadge = isOnline 
-                ? `<span style="background:#00f0ff; width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:8px; box-shadow: 0 0 10px #00f0ff;"></span>Conectado` 
-                : `<span style="background:#a1a1aa; width:8px; height:8px; border-radius:50%; display:inline-block; margin-right:8px;"></span>Desconectado`;
-
-            htmlAlumnos += `
-                <div class="item-pregunta-banco" style="display:flex; justify-content:space-between; align-items:center; border-left:4px solid ${isOnline ? '#00f0ff' : '#27272a'}; padding:12px;">
-                    <div style="flex:1;">
-                        <p style="font-size:1rem; font-weight:600; color:${colorTexto};">
-                            ${estudianteEmail}
-                        </p>
-                    </div>
-                    <div style="font-size:0.8rem; color:${colorTexto}; font-weight:500; display:flex; align-items:center;">
-                        ${estadoBadge}
-                    </div>
-                </div>
-            `;
-        });
-    }
-
-    modal.innerHTML = `
-        <div class="pestana-contenido" style="max-width:520px;">
-            <div class="pestana-header">
-                <h3>Control de Asistencia y Aprendices Unidos</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <p style="font-size:0.85rem; color:var(--texto-mutado); margin-bottom:15px;">Listado en tiempo real de los alumnos enlazados a la ficha.</p>
-            <div class="pestana-scroll" style="display:flex; flex-direction:column; gap:8px;">
-                ${htmlAlumnos}
-            </div>
-        </div>
-    `;
-}
-
-function verPuntuacionesAlumnos(claseId) {
-    syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-
-    let vistasUnicas = {};
-    if (clase.answersLog && clase.answersLog.length > 0) {
-        clase.answersLog.forEach(log => {
-            if (log.tipo === 'examen_total' || log.tipo === 'simulador') {
-                const llave = `${log.alumno}-${log.idMeta}`;
-                vistasUnicas[llave] = {
-                    alumno: log.alumno,
-                    enunciado: log.enunciado,
-                    nota: log.nota,
-                    idMeta: log.idMeta,
-                    tipo: log.tipo
-                };
-            }
-        });
-    }
-
-    let htmlLog = "";
-    const evaluaciones = Object.values(vistasUnicas);
-
-    if (evaluaciones.length === 0) {
-        htmlLog = "<p style='color:var(--texto-mutated || #a1a1aa); font-style:italic; padding:10px; text-align:center;'>Ningún aprendiz ha enviado exámenes o simulaciones todavía.</p>";
-    } else {
-        evaluaciones.forEach(item => {
-            htmlLog += `
-                <div class="item-pregunta-banco" style="border-left:4px solid var(--acento-morado); margin-bottom:10px; cursor:pointer; padding:12px;" 
-                     onclick="verDetalleRespuestasAprendiz('${claseId}', '${item.alumno}', '${item.idMeta}')">
-                    <p style="font-size:0.85rem; color:var(--acento-azul);"><strong>Aprendiz: ${item.alumno}</strong></p>
-                    <p style="margin-top:4px; font-weight:600;">📋 ${item.enunciado}</p>
-                    <p style="font-size:0.9rem; margin-top:4px;">Puntuación Final: <strong style="color:var(--acento-verde);">${item.nota}%</strong></p>
-                    <span style="font-size:0.75rem; color:var(--texto-mutated || #a1a1aa); text-decoration:underline;">Click para auditar aciertos, errores e imágenes de soporte</span>
-                </div>
-            `;
-        });
-    }
-
-    modal.innerHTML = `
-        <div class="pestana-contenido">
-            <div class="pestana-header">
-                <h3>Evaluaciones y Simulaciones Entregadas</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <p style="font-size:0.85rem; color:var(--texto-mutated || #a1a1aa); margin-bottom:12px;">Seleccione un examen para auditar de forma compacta sus respuestas.</p>
-            <div class="pestana-scroll">${htmlLog}</div>
-        </div>
-    `;
-}
-
-function verDetalleRespuestasAprendiz(claseId, alumnoEmail, metaId) {
-    syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-
-    const detalles = (clase.answersLog || []).filter(log => log.alumno === alumnoEmail && log.idMeta === metaId && log.tipo === 'pregunta_examen_interna');
-    const metaExamen = (clase.answersLog || []).find(log => log.alumno === alumnoEmail && log.idMeta === metaId && (log.tipo === 'examen_total' || log.tipo === 'simulador'));
-
-    let htmlDetalles = `<h4 style="margin-bottom:4px; color:white;">Resumen Técnico de: ${alumnoEmail}</h4>`;
-    htmlDetalles += `<p style="margin-bottom:15px; color:var(--acento-verde); font-weight:bold;">Calificación Consolidada: ${metaExamen ? metaExamen.nota : 0}%</p>`;
-
-    if (detalles.length === 0 && metaExamen && metaExamen.tipo === 'simulador') {
-        htmlDetalles += `<p style="color:var(--texto-mutated || #a1a1aa); font-style:italic;">Las métricas del simulador interactivo de ensamble se guardaron con éxito de forma directa.</p>`;
-    } else {
-        detalles.forEach((p, idx) => {
-            const opcionCorrectaTexto = p.opciones && p.opciones[p.correcta] ? p.opciones[p.correcta] : "No definida";
-            const opcionSeleccionadaTexto = p.opciones && p.opciones[p.seleccionada] ? p.opciones[p.seleccionada] : "No contestada";
-
-            const esImgCorr = opcionCorrectaTexto.startsWith("http") || opcionCorrectaTexto.startsWith("data:image");
-            const esImgSel = opcionSeleccionadaTexto.startsWith("http") || opcionSeleccionadaTexto.startsWith("data:image");
-
-            htmlDetalles += `
-                <div style="background:var(--bg-inputs); border:1px solid var(--borde); padding:12px; margin-bottom:10px; border-radius:6px;">
-                    <p style="font-weight:600; font-size:0.9rem; color:white;">${idx + 1}. ¿${p.enunciado}</p>
-                    
-                    ${p.image ? `<img src="${p.image}" style="max-height:120px; display:block; margin:8px 0; border-radius:4px; border:1px solid #333;">` : ''}
-                    
-                    <p style="color:var(--acento-verde); font-size:0.85rem; margin-top:6px; font-weight:500;">
-                        ✓ Respuesta Correcta: ${esImgCorr ? `<img src="${opcionCorrectaTexto}" style="max-height:50px; vertical-align:middle; margin-left:4px;">` : opcionCorrectaTexto}
-                    </p>
-                    ${!p.esCorrecto ? `
-                        <p style="color:var(--acento-rojo); font-size:0.85rem; font-weight:500; margin-top:4px;">
-                            ❌ Respuesta Elegida por Aprendiz: ${esImgSel ? `<img src="${opcionSeleccionadaTexto}" style="max-height:50px; vertical-align:middle; margin-left:4px;">` : opcionSeleccionadaTexto}
-                        </p>
-                    ` : ''}
-                </div>
-            `;
-        });
-    }
-
-    modal.innerHTML = `
-        <div class="pestana-contenido">
-            <div class="pestana-header">
-                <h3>Auditoría Detallada de Respuestas</h3>
-                <button class="btn-primary" style="padding:4px 12px; font-size:0.8rem; background:#27272a;" onclick="verPuntuacionesAlumnos('${claseId}')">⬅ Volver</button>
-            </div>
-            <div class="pestana-scroll">${htmlDetalles}</div>
-        </div>
-    `;
-}
-
-function verRendimientoGlobalAlumnos(claseId) {
-    syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-
-    let htmlRendimiento = "";
-
-    if (!clase.estudiantes || clase.estudiantes.length === 0) {
-        htmlRendimiento = "<p style='color:var(--texto-mutated || #a1a1aa); text-align:center; padding:15px;'>No hay aprendices inscritos en esta ficha.</p>";
-    } else {
-        clase.estudiantes.forEach(alumno => {
-            const respuestasAlumno = (clase.answersLog || []).filter(r => r.alumno === alumno && r.tipo !== 'pregunta_examen_interna');
-            
-            let totalNotas = 0;
-            let itemsRespondidos = 0;
-            
-            respuestasAlumno.forEach(r => {
-                totalNotas += r.nota;
-                itemsRespondidos++;
-            });
-
-            const promedioGlobal = itemsRespondidos > 0 ? Math.round(totalNotas / itemsRespondidos) : 0;
-            let barraColor = "var(--acento-rojo)";
-            if(promedioGlobal >= 60) barraColor = "var(--acento-azul)";
-            if(promedioGlobal >= 85) barraColor = "var(--acento-verde)";
-
-            htmlRendimiento += `
-                <div class="item-pregunta-banco" style="display:flex; flex-direction:column; gap:6px; padding:12px; border-left:4px solid ${barraColor};">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span style="font-weight:600; font-size:0.95rem; color:white;">${alumno}</span>
-                        <span style="font-weight:700; color:${barraColor}">${promedioGlobal}%</span>
-                    </div>
-                    <div style="width:100%; background:#27272a; height:8px; border-radius:4px; overflow:hidden;">
-                        <div style="width:${promedioGlobal}%; background:${barraColor}; height:100%;"></div>
-                    </div>
-                    <p style="font-size:0.75rem; color:var(--texto-mutated || #a1a1aa);">Entregas evaluadas por el sistema: ${itemsRespondidos}</p>
-                </div>
-            `;
-        });
-    }
-
-    modal.innerHTML = `
-        <div class="pestana-contenido" style="max-width:550px;">
-            <div class="pestana-header">
-                <h3>Rendimiento Global Consolidado</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <p style="font-size:0.85rem; color:var(--texto-mutated || #a1a1aa); margin-bottom:15px;">Promedio general en tiempo real calculado sobre todas las entregas guardadas en la ficha.</p>
-            <div class="pestana-scroll" style="display:flex; flex-direction:column; gap:10px;">
-                ${htmlRendimiento}
-            </div>
-        </div>
-    `;
-}
-
-function abrirMenuPreguntas(claseId) {
-    syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-    
-    let htmlPreguntas = "";
-    
-    if(!clase.preguntasCargadas || clase.preguntasCargadas.length === 0) {
-        htmlPreguntas = "<p style='color:var(--texto-mutated || #a1a1aa); text-align:center; padding:20px; font-style:italic;'>No hay preguntas cargadas en esta ficha todavía. Use las opciones superiores.</p>";
-    } else {
-        clase.preguntasCargadas.forEach((p, index) => {
-            htmlPreguntas += `
-                <div class="item-pregunta-banco" style="margin-bottom:15px; background:var(--bg-inputs); padding:15px; border-radius:8px; border:1px solid var(--borde);">
-                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
-                        <p style="margin:0; font-weight:600;"><strong>${index + 1}. ¿${p.pregunta}</strong></p>
-                        <button class="btn-primary" style="background:var(--acento-rojo); padding:2px 8px; font-size:0.75rem;" onclick="eliminarPreguntaIndividualFicha('${claseId}', '${p.id}')">🗑 Borrar</button>
-                    </div>
-                    ${p.image ? `<img src="${p.image}" style="max-height:100px; display:block; margin:6px 0; border-radius:4px;">` : ''}
-                    ${p.opciones.map((op, opIdx) => `
-                        <div class="opcion-verificacion ${opIdx === p.correcta ? 'opcion-correcta' : 'opcion-neutra'}" style="margin-top:4px; font-size:0.85rem; padding:6px 10px;">
-                            ${String.fromCharCode(65 + opIdx)}. ${op}
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-        });
-    }
-
-    let htmlCargaSueltas = `<h4 style="margin:15px 0 10px 0; color:white; font-size:0.95rem;">Inyección Rápida desde Banco Predeterminado:</h4><div style="display:flex; flex-direction:column; gap:6px; max-height:200px; overflow-y:auto; border:1px solid var(--borde); padding:8px; border-radius:6px; background:#18181b;">`;
-    bancoPredeterminado30.forEach((p) => {
-        const yaCargada = clase.preguntasCargadas.some(pc => String(pc.id) === String(p.id) || pc.pregunta === p.pregunta);
-        htmlCargaSueltas += `
-            <div style="display:flex; justify-content:space-between; align-items:center; background:#27272a; padding:6px 10px; border-radius:4px; font-size:0.8rem;">
-                <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:70%; color:#e4e4e7;">¿${p.pregunta}</span>
-                <button class="btn-primary" style="padding:2px 6px; font-size:0.75rem; background:${yaCargada ? '#3f3f46' : 'var(--acento-azul)'};" ${yaCargada ? 'disabled' : ''} onclick="cargarPreguntaIndividual('${claseId}', ${p.id})">
-                    ${yaCargada ? 'Inyectada' : '+ Cargar'}
-                </button>
-            </div>
-        `;
-    });
-    htmlCargaSueltas += `</div>`;
-
-    modal.innerHTML = `
-        <div class="pestana-contenido" style="max-width:650px;">
-            <div class="pestana-header">
-                <h3>Gestión y Carga Asistida de Preguntas</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:15px;">
-                <button class="btn-primary" style="background:var(--acento-verde); font-size:0.85rem;" onclick="cargarTodoElBanco('${claseId}')">Cargar las 30 Predeterminadas</button>
-                <button class="btn-primary" style="font-size:0.85rem;" onclick="abrirCreadorPreguntaPropia('${claseId}')">+ Diseñar Pregunta Instructor</button>
-            </div>
-            ${htmlCargaSueltas}
-            <h4 style="margin:20px 0 10px 0; color:white; font-size:0.95rem; border-bottom:1px solid var(--borde); padding-bottom:4px;">Preguntas Vigentes en la Ficha (${clase.preguntasCargadas.length})</h4>
-            <div class="pestana-scroll" style="max-height:350px;">
-                ${htmlPreguntas}
-            </div>
-        </div>
-    `;
-}
-
-function eliminarPreguntaIndividualFicha(claseId, pregId) {
-    syncData();
-    let clase = appState.clases.find(c => c.id === claseId);
-    if (clase) {
-        clase.preguntasCargadas = clase.preguntasCargadas.filter(p => String(p.id) !== String(pregId));
-        guardarDatos();
-        abrirMenuPreguntas(claseId);
-    }
-}
-
-function cargarPreguntaIndividual(claseId, pregId) {
-    syncData();
-    let clase = appState.clases.find(c => c.id === claseId);
-    if(clase.preguntasCargadas.some(p => String(p.id) === String(pregId))) return;
-    const original = bancoPredeterminado30.find(p => String(p.id) === String(pregId));
-    clase.preguntasCargadas.push({...original});
-    guardarDatos();
-    abrirMenuPreguntas(claseId);
-}
-
-function cargarTodoElBanco(claseId) {
-    syncData();
-    let clase = appState.clases.find(c => c.id === claseId);
-    clase.preguntasCargadas = [...bancoPredeterminado30];
-    guardarDatos();
-    alert("Banco completo inyectado en este ambiente virtual.");
-    abrirMenuPreguntas(claseId);
-}
-
-function abrirCreadorPreguntaPropia(claseId) {
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.innerHTML = `
-        <div class="pestana-contenido" style="max-width:580px;">
-            <div class="pestana-header">
-                <h3>Generar Pregunta Personalizada</h3>
-                <button class="btn-cerrar-flotante" onclick="abrirMenuPreguntas('${claseId}')">×</button>
-            </div>
-            <div class="pestana-scroll">
-                <label style="font-weight:600; font-size:0.85rem; color:var(--texto-mutated || #a1a1aa)">Enunciado:</label>
-                <input type="text" id="cpEnunciado" class="input-dajox" style="margin:6px 0 14px 0;" placeholder="Escriba la pregunta aquí...">
-                
-                <label style="font-weight:600; font-size:0.85rem; color:var(--texto-mutated || #a1a1aa)">Respuestas Múltiples (Marque el círculo de la correcta):</label>
-                <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;" id="contenedorOpcionesCustom">
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <input type="radio" name="cpCorrecta" value="0" checked>
-                        <input type="text" class="input-dajox clsOpDinamica" placeholder="Opción A">
-                    </div>
-                    <div style="display:flex; align-items:center; gap:10px;">
-                        <input type="radio" name="cpCorrecta" value="1">
-                        <input type="text" class="input-dajox clsOpDinamica" placeholder="Opción B">
-                    </div>
-                </div>
-                <button class="btn-primary" style="background:#27272a; margin-top:10px; padding:6px 12px; font-size:0.8rem;" onclick="anadirNuevaOpcionAlFormulario('contenedorOpcionesCustom', 'cpCorrecta')">+ Añadir Opción</button>
-                
-                <div style="margin-top:20px; padding-top:12px; border-top:1px solid var(--borde);">
-                    <label style="font-weight:600; font-size:0.85rem; color:var(--texto-mutated || #a1a1aa)">Imagen de Apoyo Temático (URL u Hoja Local):</label>
-                    <div style="display:flex; gap:10px; margin-top:6px;">
-                        <input type="text" id="cpImgUrl" class="input-dajox" placeholder="Pegar enlace HTTP / HTTPS...">
-                        <input type="file" id="cpFile" accept="image/*" onchange="procesarImagenHibrida(this, 'cpImgUrl', 'cpPrevia')" style="display:none;">
-                        <button class="btn-primary" onclick="document.getElementById('cpFile').click()">Subir Archivo</button>
-                    </div>
-                    <img id="cpPrevia" class="img-preview hidden" style="margin-top:10px; max-height:140px;">
-                </div>
-                
-                <button class="btn-primary" style="width:100%; margin-top:25px; background:var(--acento-verde);" onclick="guardarPreguntaCreadaInstructor('${claseId}')">Publicar Pregunta en la Ficha</button>
-            </div>
-        </div>
-    `;
-
-    document.getElementById("cpImgUrl").addEventListener("input", (e) => {
-        const img = document.getElementById("cpPrevia");
-        if(e.target.value.trim()) {
-            img.src = e.target.value.trim();
-            img.classList.remove("hidden");
-        }
-    });
-}
-
-function anadirNuevaOpcionAlFormulario(contenedorId, radioName) {
-    const contenedor = document.getElementById(contenedorId);
-    const total = contenedor.querySelectorAll('input[type="radio"]').length;
-    const div = document.createElement("div");
-    div.style.display = "flex";
-    div.style.alignItems = "center";
-    div.style.gap = "10px";
-    div.innerHTML = `
-        <input type="radio" name="${radioName}" value="${total}">
-        <input type="text" class="input-dajox clsOpDinamica" placeholder="Opción ${String.fromCharCode(65+total)}">
-    `;
-    contenedor.appendChild(div);
-}
-
-function procesarImagenHibrida(fileInput, urlInputId, previewImgId) {
-    if (fileInput.files && fileInput.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            document.getElementById(urlInputId).value = e.target.result;
-            const preview = document.getElementById(previewImgId);
-            if(preview) {
-                preview.src = e.target.result;
-                preview.classList.remove("hidden");
-                preview.style.display = "block";
-            }
-        };
-        reader.readAsDataURL(fileInput.files[0]);
-    }
-}
-
-function guardarPreguntaCreadaInstructor(claseId) {
-    const enun = document.getElementById("cpEnunciado").value.trim();
-    const ops = Array.from(document.querySelectorAll(".clsOpDinamica")).map(i => i.value.trim()).filter(Boolean);
-    const corr = parseInt(document.querySelector('input[name="cpCorrecta"]:checked').value);
-    const imgSource = document.getElementById("cpImgUrl").value.trim();
-
-    if(!enun || ops.length < 2) { return; }
-
-    syncData();
-    let clase = appState.clases.find(c => c.id === claseId);
-    clase.preguntasCargadas.push({
-        id: "PREG-" + Date.now(),
-        pregunta: enun,
-        opciones: ops,
-        correcta: corr,
-        image: imgSource
-    });
-    guardarDatos();
-    alert("Pregunta de diseño propio publicada con éxito.");
-    abrirMenuPreguntas(claseId);
-}
-
-function abrirMenuExamenes(claseId) {
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-    modal.innerHTML = `
-        <div class="pestana-contenido" style="max-width:480px;">
-            <div class="pestana-header">
-                <h3>Módulo de Publicación de Evaluaciones</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <p style="font-size:0.85rem; color:var(--texto-mutated || #a1a1aa); margin-bottom:20px;">Establezca la modalidad del instrumento evaluativo para la ficha activa.</p>
-            <div style="display:flex; flex-direction:column; gap:12px;">
-                <button class="opcion-pestana" onclick="disenarExamenEstructuradoDinamico('${claseId}', 'multiple')">📝 Crear Examen Teórico (Opción Múltiple)</button>
-                <button class="opcion-pestana" onclick="disenarExamenEstructuradoDinamico('${claseId}', 'imagen')">🖼 Crear Examen con Imágenes en Opciones</button>
-                <button class="opcion-pestana" style="background:#1e1b4b; border-color:#4338ca;" onclick="disenarSimuladorEnsambleCoordenadas('${claseId}')">🧩 Configurar Simulador por Puntos de Ensamble</button>
-            </div>
-        </div>
-    `;
-}
-
-let examenBorradorPreguntas = [];
-function disenarExamenEstructuradoDinamico(claseId, tipo) {
-    examenBorradorPreguntas = [];
-    desplegarCreadorPreguntaExamenEstructurado(claseId, tipo);
-}
-
-function desplegarCreadorPreguntaExamenEstructurado(claseId, tipo) {
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-
-    let constructorOpciones = "";
-    if (tipo === 'multiple') {
-        constructorOpciones = `
-            <div style="display:flex; flex-direction:column; gap:10px; margin-top:8px;" id="boxExOpciones">
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <input type="radio" name="exCorrecta" value="0" checked>
-                    <input type="text" class="input-dajox clsExOp" placeholder="Opción A">
-                </div>
-                <div style="display:flex; align-items:center; gap:10px;">
-                    <input type="radio" name="exCorrecta" value="1">
-                    <input type="text" class="input-dajox clsExOp" placeholder="Opción B">
-                </div>
-            </div>
-        `;
-    } else {
-        constructorOpciones = `
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:15px; margin-top:8px;" id="boxExOpciones">
-                <div style="background:var(--bg-inputs); padding:10px; border-radius:6px; border:1px solid var(--borde);">
-                    <label style="font-size:0.8rem; font-weight:600;"><input type="radio" name="exCorrecta" value="0" checked> Opción A (Imagen):</label>
-                    <input type="text" id="url_op_0" class="input-dajox clsExOp" style="margin-top:5px;" placeholder="Texto u URL de imagen" oninput="escucharEntradaUrlImagenOpcion(this, 0)">
-                    <input type="file" onchange="convertirArchivoImagenOpcionExamen(this, 0)" style="margin-top:4px; font-size:0.8rem;" accept="image/*">
-                    <img id="previo_op_0" style="max-height:80px; margin-top:8px; border-radius:4px; display:none;">
-                </div>
-                <div style="background:var(--bg-inputs); padding:10px; border-radius:6px; border:1px solid var(--borde);">
-                    <label style="font-size:0.8rem; font-weight:600;"><input type="radio" name="exCorrecta" value="1"> Opción B (Imagen):</label>
-                    <input type="text" id="url_op_1" class="input-dajox clsExOp" style="margin-top:5px;" placeholder="Texto u URL de imagen" oninput="escucharEntradaUrlImagenOpcion(this, 1)">
-                    <input type="file" onchange="convertirArchivoImagenOpcionExamen(this, 1)" style="margin-top:4px; font-size:0.8rem;" accept="image/*">
-                    <img id="previo_op_1" style="max-height:80px; margin-top:8px; border-radius:4px; display:none;">
-                </div>
-            </div>
-        `;
-    }
-
-    modal.innerHTML = `
-        <div class="pestana-contenido" style="max-width:680px;">
-            <div class="pestana-header">
-                <h3>Pregunta N° ${examenBorradorPreguntas.length + 1} (${tipo.toUpperCase()})</h3>
-                <button class="btn-cerrar-flotante" onclick="abrirMenuExamenes('${claseId}')">×</button>
-            </div>
-            <div class="pestana-scroll">
-                <p style="font-size:0.85rem; color:var(--acento-morado); margin-bottom:12px; font-weight:600;">Preguntas acumuladas en el borrador: ${examenBorradorPreguntas.length}</p>
-                
-                <label style="font-weight:600; font-size:0.85rem;">Enunciado del Reactivo:</label>
-                <input type="text" id="exEnunciado" class="input-dajox" style="margin:5px 0 15px 0;" placeholder="Escriba el enunciado...">
-
-                <label style="font-weight:600; font-size:0.85rem;">Configuración de Opciones y Clave de Respuesta:</label>
-                ${constructorOpciones}
-                
-                <button class="btn-primary" style="background:#27272a; margin-top:10px; padding:6px 12px; font-size:0.8rem;" onclick="anadirOpcionDinamicaExamen('${tipo}')">+ Añadir Opción de Respuesta</button>
-
-                <div style="margin-top:15px; padding-top:12px; border-top:1px solid var(--borde);">
-                    <label style="font-weight:600; font-size:0.85rem;">Imagen de Soporte General (Opcional):</label>
-                    <div style="display:flex; gap:10px; margin-top:5px;">
-                        <input type="text" id="exImgUrl" class="input-dajox" placeholder="Pegar enlace URL...">
-                        <input type="file" id="exFile" accept="image/*" onchange="procesarImagenHibrida(this, 'exImgUrl', 'exPrevia')" style="display:none;">
-                        <button class="btn-primary" onclick="document.getElementById('exFile').click()">Examinar</button>
-                    </div>
-                    <img id="exPrevia" class="img-preview hidden">
-                </div>
-
-                <div style="display:flex; gap:10px; margin-top:20px;">
-                    <button class="btn-primary" style="flex:1;" onclick="salvarPreguntaAlBorrador('${claseId}', '${tipo}')">Guardar e Ir a Siguiente Pregunta</button>
-                    <button class="btn-primary" style="background:var(--acento-verde);" onclick="publicarExamenDefinitivo('${claseId}', '${tipo}')">Finalizar y Publicar Examen Completo</button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    document.getElementById('exImgUrl').addEventListener('input', (e) => {
-        const img = document.getElementById("exPrevia");
-        if(e.target.value.trim()) {
-            img.src = e.target.value.trim();
-            img.classList.remove("hidden");
-        }
-    });
-}
-
-function escucharEntradaUrlImagenOpcion(input, index) {
-    const img = document.getElementById(`previo_op_${index}`);
-    if (input.value.trim().startsWith("http") || input.value.trim().startsWith("data:image")) {
-        img.src = input.value.trim();
-        img.style.display = "block";
-    } else {
-        img.style.display = "none";
-    }
-}
-
-function convertirArchivoImagenOpcionExamen(fileInput, index) {
-    if (fileInput.files && fileInput.files[0]) {
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const inputs = document.querySelectorAll(".clsExOp");
-            if(inputs[index]) inputs[index].value = e.target.result;
-            const img = document.getElementById(`previo_op_${index}`);
-            if(img) {
-                img.src = e.target.result;
-                img.style.display = "block";
-            }
-        };
-        reader.readAsDataURL(fileInput.files[0]);
-    }
-}
-
-function anadirOpcionDinamicaExamen(tipo) {
-    const box = document.getElementById("boxExOpciones");
-    const total = box.querySelectorAll('input[type="radio"]').length;
-
-    if (tipo === 'multiple') {
-        const div = document.createElement("div");
-        div.style = "display:flex; align-items:center; gap:10px;";
-        div.innerHTML = `
-            <input type="radio" name="exCorrecta" value="${total}">
-            <input type="text" class="input-dajox clsExOp" placeholder="Opción ${String.fromCharCode(65 + total)}">
-        `;
-        box.appendChild(div);
-    } else {
-        const div = document.createElement("div");
-        div.style = "background:var(--bg-inputs); padding:10px; border-radius:6px; border:1px solid var(--borde);";
-        div.innerHTML = `
-            <label style="font-size:0.8rem; font-weight:600;"><input type="radio" name="exCorrecta" value="${total}"> Opción ${String.fromCharCode(65 + total)} (Imagen):</label>
-            <input type="text" id="url_op_${total}" class="input-dajox clsExOp" style="margin-top:5px;" placeholder="Texto u URL" oninput="escucharEntradaUrlImagenOpcion(this, ${total})">
-            <input type="file" onchange="convertirArchivoImagenOpcionExamen(this, ${total})" style="margin-top:4px; font-size:0.8rem;" accept="image/*">
-            <img id="previo_op_${total}" style="max-height:80px; margin-top:8px; border-radius:4px; display:none;">
-        `;
-        box.appendChild(div);
-    }
-}
-
-function salvarPreguntaAlBorrador(claseId, tipo) {
-    const enunciado = document.getElementById("exEnunciado").value.trim();
-    const opciones = Array.from(document.querySelectorAll(".clsExOp")).map(i => i.value.trim()).filter(Boolean);
-    const radioSelected = document.querySelector('input[name="exCorrecta"]:checked');
-
-    if (!enunciado || opciones.length < 2 || !radioSelected) {
-        alert("Complete el enunciado y al menos dos opciones válidas.");
-        return;
-    }
-
-    const correctaIndex = parseInt(radioSelected.value);
-    const imgG = document.getElementById("exImgUrl").value.trim();
-
-    examenBorradorPreguntas.push({
-        id: "STRUCT-" + Date.now() + Math.floor(Math.random()*100),
-        pregunta: enunciado,
-        opciones: opciones,
-        correcta: correctaIndex,
-        image: imgG
-    });
-
-    alert("Pregunta añadida al borrador con éxito.");
-    desplegarCreadorPreguntaExamenEstructurado(claseId, tipo);
-}
-
-function populateDefaultExamenPreguntasIfEmpty(claseId, tipo) {
-    if (examenBorradorPreguntas.length === 0) {
-        examenBorradorPreguntas = bancoPredeterminado30.slice(0, 5).map((p, idx) => ({
-            id: "STRUCT-AUTO-" + Date.now() + idx,
-            pregunta: p.pregunta,
-            opciones: [...p.opciones],
-            correcta: p.correcta,
-            image: p.image || ""
-        }));
-    }
-}
-
-function publicarExamenDefinitivo(claseId, tipo) {
-    const enunciado = document.getElementById("exEnunciado").value.trim();
-    const opciones = Array.from(document.querySelectorAll(".clsExOp")).map(i => i.value.trim()).filter(Boolean);
-    const radioSelected = document.querySelector('input[name="exCorrecta"]:checked');
-
-    if (enunciado && opciones.length >= 2 && radioSelected) {
-        const correctaIndex = parseInt(radioSelected.value);
-        const imgG = document.getElementById("exImgUrl").value.trim();
-        examenBorradorPreguntas.push({
-            id: "STRUCT-" + Date.now() + Math.floor(Math.random()*100),
-            pregunta: enunciado,
-            opciones: opciones,
-            correcta: correctaIndex,
-            image: imgG
-        });
-    }
-
-    populateDefaultExamenPreguntasIfEmpty(claseId, tipo);
-
-    syncData();
-    let clase = appState.clases.find(c => c.id === claseId);
-    if(!clase.examenesCreadosEstructurados) clase.examenesCreadosEstructurados = [];
-    
-    clase.examenesCreadosEstructurados.push({
-        idExamen: "EXAMEN-" + Date.now(),
-        tipo: tipo,
-        preguntas: [...examenBorradorPreguntas]
-    });
-
-    guardarDatos();
-    examenBorradorPreguntas = [];
-    alert("Examen Estructurado creado con éxito para los aprendices matriculados.");
-    cerrarPestanaFlotante();
-}
-
-let simuladorPuntosBorrador = [];
-function disenarSimuladorEnsambleCoordenadas(claseId) {
-    simuladorPuntosBorrador = [];
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-    modal.innerHTML = `
-        <div class="pestana-contenido" style="max-width:950px; width:95%;">
-            <div class="pestana-header">
-                <h3>Diseño del Simulador de Ensamble por Puntos</h3>
-                <button class="btn-cerrar-flotante" onclick="abrirMenuExamenes('${claseId}')">×</button>
-            </div>
-            <div style="display: grid; grid-template-columns: 1fr 280px; gap: 20px; overflow: hidden; flex: 1;">
-                <div class="pestana-scroll">
-                    <label style="font-weight:600; font-size:0.85rem;">Objetivo de la Simulación:</label>
-                    <input type="text" id="simObjetivo" placeholder="Ej: Ubicar de forma precisa los componentes de la Board..." class="input-dajox" style="margin:5px 0 15px 0;">
-                    
-                    <label style="font-weight:600; font-size:0.85rem;">Imagen Base del Simulador:</label>
-                    <div style="display:flex; gap:10px; margin:5px 0 15px 0;">
-                        <input type="text" id="simImgUrl" class="input-dajox" placeholder="URL de la imagen...">
-                        <input type="file" id="simFile" accept="image/*" onchange="procesarImagenHibrida(this, 'simImgUrl', 'imgMapeoBase')" style="display:none;">
-                        <button class="btn-primary" onclick="document.getElementById('simFile').click()">Examinar</button>
-                    </div>
-
-                    <div id="wrapperMapaMapeo" style="position:relative; display:inline-block; border:2px dashed #444; border-radius:8px; overflow:hidden; background:#121214; cursor:crosshair;">
-                        <img id="imgMapeoBase" style="max-width:100%; display:block; min-height:200px; background:#1c1c21;" onclick="registrarCoordenadaPuntoSimulador(event)">
-                    </div>
-                    <p style="font-size:0.8rem; color:var(--texto-mutated || #a1a1aa); margin-top:6px;">💡 Haga clic sobre la imagen cargada para trazar una coordenada exacta de soltado.</p>
-                </div>
-
-                <div style="border-left: 1px solid var(--borde); padding-left: 15px; display: flex; flex-direction: column; overflow: hidden;">
-                    <h4 style="font-size:0.9rem; margin-bottom:10px; color:white;">Puntos de Anclaje Registrados</h4>
-                    <div id="listaPuntosMapeados" style="display:flex; flex-direction:column; gap:8px; flex:1; overflow-y:auto; padding-right:4px;"></div>
-                    <button class="btn-primary" style="width:100%; margin-top:15px; background:var(--acento-verde);" onclick="publicarSimuladorMapeado('${claseId}')">Publicar Simulador por Puntos</button>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-function registrarCoordenadaPuntoSimulador(e) {
-    const rect = e.target.getBoundingClientRect();
-    const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-
-    const respuesta = prompt("Escriba el nombre técnico exacto del componente o pegue la DataURL/URL de la imagen que calza en este punto:");
-    if(!respuesta) return;
-
-    simuladorPuntosBorrador.push({
-        x: xPct,
-        y: yPct,
-        respuestaCorrecta: respuesta.trim()
-    });
-
-    const wrapper = document.getElementById("wrapperMapaMapeo");
-    const div = document.createElement("div");
-    div.className = "punto-referencia";
-    div.style = `position:absolute; top:${yPct}%; left:${xPct}%; width:16px; height:16px; background:var(--acento-morado); border:2px solid white; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; box-shadow:0 0 8px var(--acento-morado);`;
-    wrapper.appendChild(div);
-
-    renderizarListaPuntosMapeados();
-}
-
-function renderizarListaPuntosMapeados() {
-    const contenedor = document.getElementById("listaPuntosMapeados");
-    contenedor.innerHTML = "";
-
-    simuladorPuntosBorrador.forEach((p, idx) => {
-        const item = document.createElement("div");
-        item.style = "background: #1c1c21; border: 1px solid var(--borde); padding: 8px 10px; border-radius: 6px; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem; gap: 10px;";
-        
-        const esImagen = p.respuestaCorrecta.startsWith("http") || p.respuestaCorrecta.startsWith("data:image");
-        const contenidoRespuesta = esImagen 
-            ? `<img src="${p.respuestaCorrecta}" style="max-height: 45px; max-width: 110px; object-fit: contain; border-radius: 4px; border: 1px solid var(--borde);">` 
-            : `<span style="color: white; font-weight: 500;">${p.respuestaCorrecta}</span>`;
-
-        item.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; overflow: hidden;">
-                <span style="background: var(--acento-morado); color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; flex-shrink: 0;">${idx + 1}</span>
-                <div style="flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                    ${contenidoRespuesta}
-                </div>
-            </div>
-            <button class="btn-primary" style="background: var(--acento-rojo); padding: 2px 6px; font-size: 0.75rem; flex-shrink: 0;" onclick="removerPuntoSimuladorBorrador(${idx})">×</button>
-        `;
-        contenedor.appendChild(item);
-    });
-}
-
-function removerPuntoSimuladorBorrador(index) {
-    simuladorPuntosBorrador.splice(index, 1);
-    const wrapper = document.getElementById("wrapperMapaMapeo");
-    const puntosGraficos = wrapper.querySelectorAll(".punto-referencia");
-    puntosGraficos.forEach(p => p.remove());
-
-    simuladorPuntosBorrador.forEach((p) => {
-        const div = document.createElement("div");
-        div.className = "punto-referencia";
-        div.style = `position:absolute; top:${p.y}%; left:${p.x}%; width:16px; height:16px; background:var(--acento-morado); border:2px solid white; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none;`;
-        wrapper.appendChild(div);
-    });
-    renderizarListaPuntosMapeados();
-}
-
-function publicarSimuladorMapeado(claseId) {
-    const obj = document.getElementById("simObjetivo").value.trim();
-    const mapaImg = document.getElementById("simImgUrl").value.trim();
-
-    if(!obj || !mapaImg || simuladorPuntosBorrador.length === 0) {
-        alert("Escriba el objetivo, cargue la imagen de fondo y trace al menos una coordenada.");
-        return;
-    }
-
-    syncData();
-    let clase = appState.clases.find(c => c.id === claseId);
-    if(!clase.examenesCreadosEstructurados) clase.examenesCreadosEstructurados = [];
-
-    clase.examenesCreadosEstructurados.push({
-        idExamen: "EXAMEN-" + Date.now(),
-        tipo: "simulador_mapeado",
-        objetivo: obj,
-        imagenFondo: mapaImg,
-        puntos: [...simuladorPuntosBorrador]
-    });
-
-    guardarDatos();
-    alert("¡Simulador interactivo por puntos publicado con éxito!");
-    cerrarPestanaFlotante();
-}
-
-// --- LÓGICA DEL APRENDIZ ---
-function initAprendiz() {
-    document.getElementById("btnUnirse").onclick = () => {
-        const codigo = document.getElementById("apCodigo").value.trim();
-        if(!codigo) return;
-
-        syncData();
-        let clase = appState.clases.find(c => c.codigo === codigo);
-        if(!clase) {
-            alert("Código inválido. No coincide con ningún ambiente autorizado.");
-            return;
-        }
-
-        if(!clase.estudiantes) clase.estudiantes = [];
-        if(!clase.estudiantes.includes(appState.user.email)) {
-            clase.estudiantes.push(appState.user.email);
-            guardarDatos();
-            alert(`Vinculación exitosa a la ficha: ${clase.nombre}`);
-        } else {
-            alert("Ya te encuentras vinculado a este ambiente virtual de formación.");
-        }
-        document.getElementById("apCodigo").value = "";
-        renderAprendizClases();
     };
+    panel.querySelectorAll(".tab-ins").forEach(function(t) {
+        t.onclick = function() { renderTabInstructor(claseId, this.dataset.tab); };
+    });
+    renderTabInstructor(claseId, tabInicial || "preguntas");
+}
+
+function renderTabInstructor(claseId, tab) {
+    syncData();
+    var clase = appState.clases.find(function(c) { return c.id === claseId; });
+    var cont = document.getElementById("tabContenido");
+    if (tab === "preguntas") renderTabPreguntas(clase, cont, claseId);
+    else if (tab === "examenes") renderTabExamenes(clase, cont, claseId);
+    else if (tab === "montaje") renderTabMontaje(clase, cont, claseId);
+    else if (tab === "resultados") renderTabResultados(clase, cont);
+}
+
+/* ── Tab Preguntas individuales ── */
+function renderTabPreguntas(clase, cont, claseId) {
+    var preguntas = clase.preguntasIndividuales || [];
+    var listaHTML = preguntas.length === 0
+        ? '<p style="color:var(--texto-mutado);font-size:0.85rem;">// Sin preguntas aun.</p>'
+        : preguntas.map(function(p, idx) {
+            return '<div class="item-lista">' +
+                '<div style="display:flex;justify-content:space-between;align-items:start;gap:10px;">' +
+                    '<div style="flex:1;">' +
+                        '<p style="font-weight:600;">' + (idx+1) + '. ' + p.pregunta + '</p>' +
+                        (p.image ? '<img src="' + p.image + '" style="max-height:70px;max-width:180px;object-fit:contain;border-radius:4px;margin:6px 0;display:block;" onerror="this.style.display=\'none\'">' : '') +
+                        '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-top:5px;">' +
+                            p.opciones.map(function(op, i) {
+                                return '<span style="margin-right:8px;' + (i === p.correcta ? 'color:var(--neon-green);font-weight:700;' : '') + '">' + String.fromCharCode(65+i) + ') ' + op + '</span>';
+                            }).join('') +
+                        '</p>' +
+                        '<p style="font-size:0.78rem;color:var(--neon-cyan);margin-top:3px;">' + p.puntos + ' pts</p>' +
+                    '</div>' +
+                    '<button class="btn-mini-rojo" data-pid="' + p.id + '">✕</button>' +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+    cont.innerHTML =
+        '<div class="seccion-form">' +
+            '<h4 style="margin-bottom:12px;">AGREGAR PREGUNTA</h4>' +
+            '<input type="text" id="pqEnunciado" placeholder="// Enunciado de la pregunta" class="input-dajox" style="width:100%;margin-bottom:8px;">' +
+            '<input type="text" id="pqImagen" placeholder="// URL de imagen (opcional)" class="input-dajox" style="width:100%;margin-bottom:6px;">' +
+            '<div id="pqImgPrev" style="margin-bottom:8px;"></div>' +
+            ['A','B','C','D'].map(function(l, i) {
+                return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
+                    '<label style="min-width:72px;font-size:0.82rem;color:var(--texto-mutado);">OPC ' + l + ':</label>' +
+                    '<input type="text" id="pqOp' + i + '" placeholder="Opcion ' + l + '" class="input-dajox" style="flex:1;">' +
+                    '<label style="font-size:0.82rem;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--neon-green);">' +
+                        '<input type="radio" name="pqCorrecta" value="' + i + '"> ✓' +
+                    '</label>' +
+                '</div>';
+            }).join('') +
+            '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">' +
+                '<input type="number" id="pqPuntos" value="10" min="1" class="input-dajox" style="width:76px;">' +
+                '<span style="font-size:0.82rem;color:var(--texto-mutado);">pts</span>' +
+                '<button id="btnAgregarPQ" class="btn-primary" style="margin-left:auto;">+ AGREGAR</button>' +
+            '</div>' +
+        '</div>' +
+        '<h4 style="margin:18px 0 10px;">BANCO (' + preguntas.length + ')</h4>' +
+        listaHTML;
+
+    document.getElementById("pqImagen").oninput = function() {
+        var url = this.value.trim();
+        var prev = document.getElementById("pqImgPrev");
+        if (url) {
+            var img = document.createElement("img");
+            img.src = url;
+            img.style.cssText = "max-height:80px;max-width:160px;object-fit:contain;border-radius:4px;border:1px solid var(--borde);";
+            img.onerror = function() { prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.78rem;">URL invalida</p>'; };
+            prev.innerHTML = "";
+            prev.appendChild(img);
+        } else { prev.innerHTML = ""; }
+    };
+
+    document.getElementById("btnAgregarPQ").onclick = function() {
+        var enunciado = document.getElementById("pqEnunciado").value.trim();
+        var imagen = document.getElementById("pqImagen").value.trim();
+        var opciones = [0,1,2,3].map(function(i) { return document.getElementById("pqOp"+i).value.trim(); });
+        var correctaRad = document.querySelector('input[name="pqCorrecta"]:checked');
+        var puntos = parseInt(document.getElementById("pqPuntos").value) || 10;
+        if (!enunciado) return alert("Escribe el enunciado");
+        if (opciones.some(function(o) { return !o; })) return alert("Rellena todas las opciones");
+        if (!correctaRad) return alert("Selecciona la opcion correcta");
+        var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+        if (!appState.clases[idx].preguntasIndividuales) appState.clases[idx].preguntasIndividuales = [];
+        appState.clases[idx].preguntasIndividuales.push({
+            id: "PQ-" + Date.now(), pregunta: enunciado, image: imagen,
+            opciones: opciones, correcta: parseInt(correctaRad.value), puntos: puntos
+        });
+        guardarDatos();
+        renderTabInstructor(claseId, "preguntas");
+    };
+
+    cont.querySelectorAll(".btn-mini-rojo[data-pid]").forEach(function(btn) {
+        btn.onclick = function() {
+            if (!confirm("Eliminar pregunta?")) return;
+            var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+            appState.clases[idx].preguntasIndividuales = appState.clases[idx].preguntasIndividuales.filter(function(p) { return p.id !== btn.dataset.pid; });
+            guardarDatos();
+            renderTabInstructor(claseId, "preguntas");
+        };
+    });
+}
+
+/* ── Tab Examenes ── */
+function renderTabExamenes(clase, cont, claseId) {
+    var examenes = clase.examenesCreadosEstructurados || [];
+    var exPregTemp = [];
+
+    var listaHTML = examenes.map(function(ex) {
+        return '<div class="item-lista">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+                '<div><p style="font-weight:700;">' + ex.nombre + '</p>' +
+                '<p style="color:var(--texto-mutado);font-size:0.8rem;">' + (ex.preguntas||[]).length + ' preguntas</p></div>' +
+                '<div style="display:flex;gap:6px;">' +
+                    '<button class="btn-mini-azul" data-eid="' + ex.idExamen + '">VER</button>' +
+                    '<button class="btn-mini-rojo" data-eid="' + ex.idExamen + '">✕</button>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+    }).join('');
+
+    cont.innerHTML =
+        '<div class="seccion-form">' +
+            '<h4 style="margin-bottom:12px;">CREAR EXAMEN</h4>' +
+            '<input type="text" id="exNombre" placeholder="// Nombre del examen" class="input-dajox" style="width:100%;margin-bottom:10px;">' +
+            '<div id="exPregTemp" style="margin-bottom:10px;"></div>' +
+            '<div class="sub-form">' +
+                '<p style="font-size:0.82rem;color:var(--neon-cyan);margin-bottom:8px;letter-spacing:0.06em;">AGREGAR PREGUNTA AL EXAMEN:</p>' +
+                '<input type="text" id="exPqEnunciado" placeholder="// Enunciado" class="input-dajox" style="width:100%;margin-bottom:6px;">' +
+                '<input type="text" id="exPqImagen" placeholder="// URL imagen (opcional)" class="input-dajox" style="width:100%;margin-bottom:6px;">' +
+                '<div id="exPqImgPrev" style="margin-bottom:6px;"></div>' +
+                ['A','B','C','D'].map(function(l, i) {
+                    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">' +
+                        '<label style="min-width:70px;font-size:0.8rem;color:var(--texto-mutado);">OPC ' + l + ':</label>' +
+                        '<input type="text" id="exOp' + i + '" placeholder="Opcion ' + l + '" class="input-dajox" style="flex:1;font-size:0.84rem;">' +
+                        '<label style="font-size:0.8rem;display:flex;align-items:center;gap:3px;cursor:pointer;color:var(--neon-green);">' +
+                            '<input type="radio" name="exCorrecta" value="' + i + '"> ✓' +
+                        '</label>' +
+                    '</div>';
+                }).join('') +
+                '<button id="btnAgregarExPq" class="btn-primary" style="font-size:0.8rem;margin-top:8px;background:var(--neon-cyan);color:#000;">+ PREGUNTA</button>' +
+            '</div>' +
+            '<button id="btnCrearExamen" class="btn-primary" style="width:100%;margin-top:10px;">CREAR EXAMEN</button>' +
+        '</div>' +
+        '<h4 style="margin:18px 0 10px;">EXAMENES (' + examenes.length + ')</h4>' +
+        (examenes.length === 0 ? '<p style="color:var(--texto-mutado);font-size:0.85rem;">// Sin examenes aun.</p>' : listaHTML);
+
+    function renderExPregTemp() {
+        var el = document.getElementById("exPregTemp");
+        if (!el) return;
+        el.innerHTML = exPregTemp.length === 0 ? '' :
+            '<div class="temp-list"><p style="font-size:0.8rem;color:var(--texto-mutado);margin-bottom:4px;">Preguntas añadidas (' + exPregTemp.length + '):</p>' +
+            exPregTemp.map(function(p, i) {
+                return '<div style="background:var(--bg-main);padding:5px 10px;border-radius:4px;margin-bottom:3px;font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;">' +
+                    '<span>' + (i+1) + '. ' + p.pregunta + (p.image ? ' [img]' : '') + '</span>' +
+                    '<button onclick="window._rmExPq(' + i + ')" style="background:var(--neon-pink);color:#fff;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:0.76rem;">✕</button>' +
+                '</div>';
+            }).join('') + '</div>';
+    }
+    window._rmExPq = function(i) { exPregTemp.splice(i, 1); renderExPregTemp(); };
+
+    document.getElementById("exPqImagen").oninput = function() {
+        var url = this.value.trim();
+        var prev = document.getElementById("exPqImgPrev");
+        if (url) {
+            var img = document.createElement("img");
+            img.src = url;
+            img.style.cssText = "max-height:70px;max-width:150px;object-fit:contain;border-radius:4px;border:1px solid var(--borde);";
+            img.onerror = function() { prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.78rem;">URL invalida</p>'; };
+            prev.innerHTML = "";
+            prev.appendChild(img);
+        } else { prev.innerHTML = ""; }
+    };
+
+    document.getElementById("btnAgregarExPq").onclick = function() {
+        var enunciado = document.getElementById("exPqEnunciado").value.trim();
+        var imagen = document.getElementById("exPqImagen").value.trim();
+        var opciones = [0,1,2,3].map(function(i) { return document.getElementById("exOp"+i).value.trim(); });
+        var correctaRad = document.querySelector('input[name="exCorrecta"]:checked');
+        if (!enunciado) return alert("Escribe el enunciado");
+        if (opciones.some(function(o) { return !o; })) return alert("Rellena todas las opciones");
+        if (!correctaRad) return alert("Selecciona la opcion correcta");
+        exPregTemp.push({ pregunta: enunciado, image: imagen, opciones: opciones, correcta: parseInt(correctaRad.value) });
+        document.getElementById("exPqEnunciado").value = "";
+        document.getElementById("exPqImagen").value = "";
+        document.getElementById("exPqImgPrev").innerHTML = "";
+        [0,1,2,3].forEach(function(i) { document.getElementById("exOp"+i).value = ""; });
+        document.querySelectorAll('input[name="exCorrecta"]').forEach(function(r) { r.checked = false; });
+        renderExPregTemp();
+    };
+
+    document.getElementById("btnCrearExamen").onclick = function() {
+        var nombre = document.getElementById("exNombre").value.trim();
+        if (!nombre) return alert("Escribe el nombre del examen");
+        if (exPregTemp.length === 0) return alert("Agrega al menos una pregunta");
+        var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+        if (!appState.clases[idx].examenesCreadosEstructurados) appState.clases[idx].examenesCreadosEstructurados = [];
+        appState.clases[idx].examenesCreadosEstructurados.push({
+            idExamen: "EX-" + Date.now(), nombre: nombre,
+            tipo: "multiple_choice", preguntas: exPregTemp.slice()
+        });
+        guardarDatos();
+        renderTabInstructor(claseId, "examenes");
+    };
+
+    cont.querySelectorAll(".btn-mini-azul[data-eid]").forEach(function(btn) {
+        btn.onclick = function() { verDetalleExamen(claseId, btn.dataset.eid); };
+    });
+    cont.querySelectorAll(".btn-mini-rojo[data-eid]").forEach(function(btn) {
+        btn.onclick = function() {
+            if (!confirm("Eliminar examen?")) return;
+            var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+            appState.clases[idx].examenesCreadosEstructurados = appState.clases[idx].examenesCreadosEstructurados.filter(function(e) { return e.idExamen !== btn.dataset.eid; });
+            guardarDatos();
+            renderTabInstructor(claseId, "examenes");
+        };
+    });
+}
+
+function verDetalleExamen(claseId, examId) {
+    syncData();
+    var clase = appState.clases.find(function(c) { return c.id === claseId; });
+    var examen = (clase.examenesCreadosEstructurados || []).find(function(e) { return e.idExamen === examId; });
+    if (!examen) return;
+    var overlay = document.createElement("div");
+    overlay.className = "neon-overlay";
+    var preguntasHTML = (examen.preguntas || []).map(function(p, idx) {
+        return '<div class="item-lista" style="border-left:2px solid var(--neon-cyan);">' +
+            '<p style="font-weight:700;margin-bottom:8px;">' + (idx+1) + '. ' + p.pregunta + '</p>' +
+            (p.image ? '<img src="' + p.image + '" style="max-height:100px;max-width:100%;object-fit:contain;border-radius:4px;margin-bottom:8px;display:block;" onerror="this.style.display=\'none\'">' : '') +
+            p.opciones.map(function(op, i) {
+                return '<div style="padding:5px 10px;border-radius:4px;margin-bottom:4px;font-size:0.85rem;' +
+                    (i === p.correcta ? 'background:rgba(0,255,136,0.1);border-left:2px solid var(--neon-green);font-weight:700;color:var(--neon-green);' : 'background:rgba(255,255,255,0.02);') + '">' +
+                    String.fromCharCode(65+i) + ') ' + op + (i === p.correcta ? ' ✓' : '') + '</div>';
+            }).join('') +
+        '</div>';
+    }).join('');
+    overlay.innerHTML =
+        '<div class="neon-modal" style="max-width:680px;">' +
+            '<button class="btn-cerrar-modal" id="btnCerrarDet">✕</button>' +
+            '<h4 style="margin-bottom:16px;">' + examen.nombre.toUpperCase() + '</h4>' +
+            preguntasHTML +
+        '</div>';
+    document.body.appendChild(overlay);
+    overlay.querySelector("#btnCerrarDet").onclick = function() { document.body.removeChild(overlay); };
+}
+
+/* ── Tab Montaje (instructor crea) ── */
+function renderTabMontaje(clase, cont, claseId) {
+    var montajes = clase.montajes || [];
+    cont.innerHTML =
+        '<div class="seccion-form">' +
+            '<h4 style="margin-bottom:12px;">CREAR MONTAJE</h4>' +
+            '<input type="text" id="mtNombre" placeholder="// Nombre del montaje" class="input-dajox" style="width:100%;margin-bottom:8px;">' +
+            '<input type="text" id="mtFondo" placeholder="// URL imagen de fondo (opcional)" class="input-dajox" style="width:100%;margin-bottom:8px;">' +
+            '<p style="font-size:0.82rem;color:var(--neon-cyan);margin-bottom:8px;letter-spacing:0.06em;">1. AGREGA LAS PIEZAS:</p>' +
+            '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">' +
+                '<select id="mtPiezaTipo" class="input-dajox" style="width:120px;">' +
+                    '<option value="texto">Texto</option>' +
+                    '<option value="imagen">Imagen (URL)</option>' +
+                '</select>' +
+                '<input type="text" id="mtPiezaContenido" placeholder="// Texto o URL" class="input-dajox" style="flex:1;">' +
+                '<button id="btnAddPieza" class="btn-primary" style="background:var(--neon-purple);flex-shrink:0;font-size:0.8rem;">+ PIEZA</button>' +
+            '</div>' +
+            '<div id="mtPiezasListIns" style="margin-bottom:12px;"></div>' +
+            '<p style="font-size:0.82rem;color:var(--neon-cyan);margin-bottom:6px;letter-spacing:0.06em;">2. CLICK EN EL CANVAS PARA COLOCAR PUNTOS:</p>' +
+            '<p style="font-size:0.78rem;color:var(--neon-purple);margin-bottom:8px;">Los aprendices veran los slots sin numeracion.</p>' +
+            '<div id="mtCanvasWrap" style="position:relative;width:100%;height:320px;background:#020408;border:1px solid rgba(0,212,255,0.2);border-radius:8px;margin-bottom:8px;overflow:hidden;">' +
+                '<img id="mtFondoImgIns" src="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:none;pointer-events:none;" onerror="this.style.display=\'none\'">' +
+                '<canvas id="mtCanvasIns" style="position:absolute;inset:0;cursor:crosshair;"></canvas>' +
+            '</div>' +
+            '<div id="mtPuntosListIns" style="margin-bottom:10px;"></div>' +
+            '<button id="btnCrearMontaje" class="btn-primary" style="width:100%;background:var(--neon-green);color:#000;">CREAR MONTAJE</button>' +
+        '</div>' +
+        '<h4 style="margin:18px 0 10px;">MONTAJES (' + montajes.length + ')</h4>' +
+        (montajes.length === 0
+            ? '<p style="color:var(--texto-mutado);font-size:0.85rem;">// Sin montajes aun.</p>'
+            : montajes.map(function(m) {
+                return '<div class="item-lista">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+                        '<div><p style="font-weight:700;">' + m.nombre + '</p>' +
+                        '<p style="color:var(--texto-mutado);font-size:0.8rem;">' + (m.piezas||[]).length + ' piezas | ' + (m.puntos||[]).length + ' puntos</p></div>' +
+                        '<button class="btn-mini-rojo" data-mid="' + m.id + '">✕</button>' +
+                    '</div>' +
+                '</div>';
+            }).join(''));
+
+    var mtPiezasTemp = [];
+    var mtPuntosTemp = [];
+    var canvas = document.getElementById("mtCanvasIns");
+    var ctx = canvas.getContext("2d");
+
+    function resizeCanvas() {
+        var wrap = document.getElementById("mtCanvasWrap");
+        if (!wrap) return;
+        canvas.width = wrap.offsetWidth;
+        canvas.height = wrap.offsetHeight;
+        drawCanvas();
+    }
+    function drawCanvas() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        mtPuntosTemp.forEach(function(pt, i) {
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 16, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(168,85,247,0.85)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(0,212,255,0.8)";
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 12px monospace";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(i + 1, pt.x, pt.y);
+        });
+    }
+    resizeCanvas();
+
+    document.getElementById("mtFondo").oninput = function() {
+        var url = this.value.trim();
+        var img = document.getElementById("mtFondoImgIns");
+        if (url) { img.src = url; img.style.display = "block"; }
+        else img.style.display = "none";
+    };
+
+    function renderPiezasIns() {
+        var el = document.getElementById("mtPiezasListIns");
+        if (!el) return;
+        el.innerHTML = mtPiezasTemp.length === 0 ? '' :
+            '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-bottom:4px;">Piezas (' + mtPiezasTemp.length + '):</p>' +
+            mtPiezasTemp.map(function(p, i) {
+                return '<div style="background:var(--bg-main);padding:5px 10px;border-radius:4px;margin-bottom:3px;font-size:0.8rem;display:flex;align-items:center;gap:8px;">' +
+                    '<span style="color:var(--neon-purple);font-weight:700;">[P' + (i+1) + ']</span>' +
+                    (p.tipo === "imagen" ? '<img src="' + p.contenido + '" style="max-height:32px;border-radius:3px;" onerror="this.style.display=\'none\'"><span style="color:var(--texto-mutado);">Imagen</span>' : '<span>' + p.contenido + '</span>') +
+                    '<button onclick="window._rmMtPieza(' + i + ')" style="background:var(--neon-pink);color:#fff;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:0.76rem;margin-left:auto;">✕</button>' +
+                '</div>';
+            }).join('');
+        renderPuntosIns();
+    }
+
+    function renderPuntosIns() {
+        var el = document.getElementById("mtPuntosListIns");
+        if (!el) return;
+        el.innerHTML = mtPuntosTemp.length === 0 ? '' :
+            '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-bottom:4px;">Puntos (' + mtPuntosTemp.length + '):</p>' +
+            mtPuntosTemp.map(function(pt, i) {
+                var opts = '<option value="">-- Pieza correcta --</option>' +
+                    mtPiezasTemp.map(function(p, pi) {
+                        return '<option value="' + pi + '"' + (pt.piezaIdx === pi ? ' selected' : '') + '>[P' + (pi+1) + '] ' + (p.tipo === "imagen" ? "Imagen" : p.contenido.substring(0,16)) + '</option>';
+                    }).join('');
+                return '<div style="background:var(--bg-main);padding:5px 10px;border-radius:4px;margin-bottom:3px;font-size:0.8rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                    '<span style="color:var(--neon-purple);font-weight:700;">PT ' + (i+1) + '</span>' +
+                    '<span style="color:var(--texto-mutado);">(' + Math.round(pt.x) + ',' + Math.round(pt.y) + ')</span>' +
+                    '<select data-ptidx="' + i + '" style="background:var(--bg-inputs);border:1px solid var(--borde);color:var(--texto-principal);border-radius:4px;padding:3px 6px;font-size:0.78rem;">' + opts + '</select>' +
+                    '<button onclick="window._rmMtPunto(' + i + ')" style="background:var(--neon-pink);color:#fff;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:0.76rem;margin-left:auto;">✕</button>' +
+                '</div>';
+            }).join('');
+        el.querySelectorAll("select[data-ptidx]").forEach(function(sel) {
+            sel.onchange = function() {
+                var i = parseInt(this.dataset.ptidx);
+                mtPuntosTemp[i].piezaIdx = this.value === "" ? null : parseInt(this.value);
+            };
+        });
+    }
+
+    window._rmMtPieza = function(i) { mtPiezasTemp.splice(i, 1); renderPiezasIns(); drawCanvas(); };
+    window._rmMtPunto = function(i) { mtPuntosTemp.splice(i, 1); drawCanvas(); renderPuntosIns(); };
+
+    document.getElementById("btnAddPieza").onclick = function() {
+        var tipo = document.getElementById("mtPiezaTipo").value;
+        var contenido = document.getElementById("mtPiezaContenido").value.trim();
+        if (!contenido) return alert("Ingresa el contenido");
+        mtPiezasTemp.push({ tipo: tipo, contenido: contenido, id: "PZ-" + Date.now() + "-" + mtPiezasTemp.length });
+        document.getElementById("mtPiezaContenido").value = "";
+        renderPiezasIns();
+    };
+
+    canvas.onclick = function(e) {
+        var rect = canvas.getBoundingClientRect();
+        mtPuntosTemp.push({
+            x: (e.clientX - rect.left) * (canvas.width / rect.width),
+            y: (e.clientY - rect.top) * (canvas.height / rect.height),
+            piezaIdx: null
+        });
+        drawCanvas();
+        renderPuntosIns();
+    };
+
+    document.getElementById("btnCrearMontaje").onclick = function() {
+        var nombre = document.getElementById("mtNombre").value.trim();
+        var fondo = document.getElementById("mtFondo").value.trim();
+        if (!nombre) return alert("Escribe el nombre");
+        if (mtPiezasTemp.length === 0) return alert("Agrega al menos una pieza");
+        if (mtPuntosTemp.length === 0) return alert("Coloca al menos un punto");
+        if (mtPuntosTemp.some(function(pt) { return pt.piezaIdx === null || pt.piezaIdx === undefined; })) return alert("Asigna pieza a cada punto");
+        var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+        if (!appState.clases[idx].montajes) appState.clases[idx].montajes = [];
+        appState.clases[idx].montajes.push({
+            id: "MT-" + Date.now(), nombre: nombre, fondo: fondo,
+            canvasW: canvas.width, canvasH: canvas.height,
+            piezas: mtPiezasTemp.slice(),
+            puntos: mtPuntosTemp.map(function(pt, i) {
+                return { id: "slot-" + i, x: pt.x, y: pt.y, piezaId: mtPiezasTemp[pt.piezaIdx].id };
+            })
+        });
+        guardarDatos();
+        renderTabInstructor(claseId, "montaje");
+    };
+
+    cont.querySelectorAll(".btn-mini-rojo[data-mid]").forEach(function(btn) {
+        btn.onclick = function() {
+            if (!confirm("Eliminar montaje?")) return;
+            var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+            appState.clases[idx].montajes = appState.clases[idx].montajes.filter(function(m) { return m.id !== btn.dataset.mid; });
+            guardarDatos();
+            renderTabInstructor(claseId, "montaje");
+        };
+    });
+}
+
+/* ── Tab Resultados (instructor ve todo) ── */
+function renderTabResultados(clase, cont) {
+    var log = clase.answersLog || [];
+    var alumnos = [];
+    log.forEach(function(e) { if (alumnos.indexOf(e.alumno) === -1) alumnos.push(e.alumno); });
+    if (alumnos.length === 0) {
+        cont.innerHTML = '<p style="color:var(--texto-mutado);font-size:0.85rem;">// No hay resultados aun.</p>';
+        return;
+    }
+    var html = '<h4 style="margin-bottom:16px;">RESULTADOS POR APRENDIZ</h4>';
+    alumnos.forEach(function(alumno) {
+        var logA = log.filter(function(e) { return e.alumno === alumno; });
+        var pregInd = logA.filter(function(e) { return e.tipo === "pregunta_individual"; });
+        var exTotal = logA.filter(function(e) { return e.tipo === "examen_total"; });
+        var exPregInterna = logA.filter(function(e) { return e.tipo === "pregunta_examen_interna"; });
+        var montLg = logA.filter(function(e) { return e.tipo === "montaje"; });
+        var simLg = logA.filter(function(e) { return e.tipo === "simulador"; });
+
+        html += '<div style="background:rgba(0,212,255,0.03);border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid rgba(0,212,255,0.1);">';
+        html += '<p style="font-weight:700;color:var(--neon-cyan);margin-bottom:14px;letter-spacing:0.06em;">APRENDIZ: ' + alumno + '</p>';
+
+        if (pregInd.length > 0) {
+            html += '<p style="font-weight:600;color:var(--neon-purple);margin-bottom:8px;font-size:0.85rem;">PREGUNTAS INDIVIDUALES</p>';
+            pregInd.forEach(function(e) {
+                html += '<div class="item-resultado" style="border-left-color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">';
+                html += '<p style="font-size:0.85rem;font-weight:600;">' + e.enunciado + '</p>';
+                if (e.image) html += '<img src="' + e.image + '" style="max-height:50px;object-fit:contain;border-radius:3px;margin:3px 0;display:block;" onerror="this.style.display=\'none\'">';
+                if (e.opciones) {
+                    html += '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-top:4px;">Respondio: <span style="color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + e.opciones[e.seleccionada] + '</span>';
+                    if (!e.esCorrecto) html += ' | Correcta: <span style="color:var(--neon-green);font-weight:700;">' + e.opciones[e.correcta] + '</span>';
+                    html += '</p>';
+                }
+                html += '<p style="font-size:0.78rem;margin-top:3px;">' + (e.esCorrecto ? '✓ Correcto' : '✗ Incorrecto') + ' | ' + (e.puntos||0) + ' pts</p>';
+                html += '</div>';
+            });
+        }
+
+        if (exTotal.length > 0) {
+            html += '<p style="font-weight:600;color:var(--neon-cyan);margin:10px 0 8px;font-size:0.85rem;">EXAMENES</p>';
+            exTotal.forEach(function(exT) {
+                var det = exPregInterna.filter(function(e) { return e.idMeta === exT.idMeta; });
+                html += '<div class="item-lista">';
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
+                html += '<p style="font-weight:700;font-size:0.88rem;">' + exT.enunciado + '</p>';
+                html += '<span style="background:' + (exT.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';color:#000;padding:3px 10px;border-radius:10px;font-size:0.8rem;font-weight:800;">' + exT.nota + '%</span>';
+                html += '</div>';
+                det.forEach(function(e, i) {
+                    html += '<div class="item-resultado" style="border-left-color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">';
+                    html += '<p style="font-size:0.82rem;font-weight:600;">' + (i+1) + '. ' + e.enunciado + '</p>';
+                    if (e.image) html += '<img src="' + e.image + '" style="max-height:50px;object-fit:contain;border-radius:3px;margin:3px 0;display:block;" onerror="this.style.display=\'none\'">';
+                    if (e.opciones) {
+                        html += '<p style="font-size:0.78rem;color:var(--texto-mutado);margin-top:3px;">Resp: <span style="color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + e.opciones[e.seleccionada] + '</span>';
+                        if (!e.esCorrecto) html += ' | OK: <span style="color:var(--neon-green);font-weight:700;">' + e.opciones[e.correcta] + '</span>';
+                        html += '</p>';
+                    }
+                    html += '</div>';
+                });
+                html += '</div>';
+            });
+        }
+
+        if (montLg.length > 0) {
+            html += '<p style="font-weight:600;color:var(--neon-purple);margin:10px 0 8px;font-size:0.85rem;">MONTAJES</p>';
+            montLg.forEach(function(e) {
+                html += '<div class="item-resultado" style="border-left-color:' + (e.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';display:flex;justify-content:space-between;align-items:center;">';
+                html += '<p style="font-size:0.85rem;">' + e.enunciado + '</p>';
+                html += '<span style="font-size:0.8rem;font-weight:800;color:' + (e.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">' + e.nota + '% (' + e.correctas + '/' + e.total + ')</span>';
+                html += '</div>';
+            });
+        }
+
+        if (simLg.length > 0) {
+            html += '<p style="font-weight:600;color:var(--neon-green);margin:10px 0 8px;font-size:0.85rem;">SIMULACIONES</p>';
+            simLg.forEach(function(e) {
+                html += '<div class="item-resultado" style="border-left-color:var(--neon-green);display:flex;justify-content:space-between;align-items:center;">';
+                html += '<p style="font-size:0.85rem;">' + e.enunciado + '</p>';
+                html += '<span style="font-size:0.8rem;font-weight:800;color:var(--neon-green);">' + e.nota + '%</span>';
+                html += '</div>';
+            });
+        }
+
+        html += '</div>';
+    });
+    cont.innerHTML = html;
+}
+
+/* ==========================================================================
+   APRENDIZ
+   ========================================================================== */
+function initAprendiz() {
+    var btnUnirse = document.getElementById("btnUnirse");
+    if (btnUnirse) {
+        btnUnirse.onclick = function() {
+            var cod = document.getElementById("apCodigo").value.trim().toUpperCase();
+            syncData();
+            var obj = appState.clases.find(function(c) { return c.id === cod; });
+            if (!obj) return alert("Codigo incorrecto. Verifica con tu instructor.");
+            var key = "dajox_joined_" + appState.user.email;
+            var joined = JSON.parse(localStorage.getItem(key) || "[]");
+            if (joined.indexOf(cod) === -1) joined.push(cod);
+            localStorage.setItem(key, JSON.stringify(joined));
+            var ci = appState.clases.findIndex(function(c) { return c.id === cod; });
+            if (ci !== -1) {
+                if (!appState.clases[ci].inscritos) appState.clases[ci].inscritos = [];
+                if (appState.clases[ci].inscritos.indexOf(appState.user.email) === -1) {
+                    appState.clases[ci].inscritos.push(appState.user.email);
+                    guardarDatos();
+                }
+            }
+            document.getElementById("apCodigo").value = "";
+            alert("Vinculado a " + obj.nombre + " exitosamente!");
+            renderAprendizClases();
+        };
+    }
     renderAprendizClases();
 }
 
 function renderAprendizClases() {
     syncData();
-    const contenedor = document.getElementById("listaClasesAprendiz");
-    contenedor.innerHTML = "";
+    var key = "dajox_joined_" + appState.user.email;
+    var joined = JSON.parse(localStorage.getItem(key) || "[]");
+    var misClases = appState.clases.filter(function(c) { return joined.indexOf(c.id) !== -1; });
+    var cont = document.getElementById("listaClasesAprendiz");
+    cont.innerHTML = "";
+    if (misClases.length === 0) {
+        cont.innerHTML = '<p style="color:var(--texto-mutado);margin-top:14px;font-size:0.85rem;letter-spacing:0.06em;">// SIN CLASES ASIGNADAS. INGRESA EL CODIGO DE TU FICHA.</p>';
+        return;
+    }
+    misClases.forEach(function(clase) {
+        var log = (clase.answersLog || []).filter(function(e) { return e.alumno === appState.user.email; });
+        var pqResp = log.filter(function(e) { return e.tipo === "pregunta_individual"; }).map(function(e) { return e.idMeta; });
+        var exRes = log.filter(function(e) { return e.tipo === "examen_total"; }).map(function(e) { return e.idMeta; });
+        var mtRes = log.filter(function(e) { return e.tipo === "montaje"; }).map(function(e) { return e.idMeta; });
+        var pqPend = (clase.preguntasIndividuales || []).filter(function(p) { return pqResp.indexOf(p.id) === -1; }).length;
+        var exPend = (clase.examenesCreadosEstructurados || []).filter(function(e) { return exRes.indexOf(e.idExamen) === -1; }).length;
+        var mtPend = (clase.montajes || []).filter(function(m) { return mtRes.indexOf(m.id) === -1; }).length;
 
-    const vinculadas = appState.clases.filter(c => c.estudiantes && c.estudiantes.includes(appState.user.email));
+        var card = document.createElement("div");
+        card.className = "card-clase-ins";
+        var badges = '';
+        if (pqPend > 0) badges += '<span class="badge-pend-purple">' + pqPend + ' PREGUNTAS</span>';
+        if (exPend > 0) badges += '<span class="badge-pend-cyan">' + exPend + ' EXAMENES</span>';
+        if (mtPend > 0) badges += '<span class="badge-pend-purple">' + mtPend + ' MONTAJES</span>';
+        if (pqPend + exPend + mtPend === 0) badges += '<span class="badge-ok">AL DIA</span>';
 
-    vinculadas.forEach(c => {
-        const div = document.createElement("div");
-        div.className = "card";
-        div.innerHTML = `
-            <h4 style="font-size:1.1rem; margin-bottom:4px;">${c.nombre.toUpperCase()}</h4>
-            <p style="color:var(--texto-mutated || #a1a1aa); font-size:0.85rem; margin-bottom:16px;">Instructor: ${c.instructor}</p>
-            <div style="display:flex; flex-direction:column; gap:8px; width:100%;">
-                <button class="btn-primary" style="width:100%; text-align:center;" onclick="abrirMenuEvaluacionesAprendiz('${c.id}')">📋 Rendir Evaluaciones</button>
-                <button class="btn-primary" style="background:#27272a; width:100%; text-align:center;" onclick="abrirHistorialClinicoNotas('${c.id}')">📊 Ver Mi Historial Clínico</button>
-            </div>
-        `;
-        contenedor.appendChild(div);
+        card.innerHTML =
+            '<div class="clase-nombre">' + clase.nombre.toUpperCase() + '</div>' +
+            '<p style="font-size:0.72rem;color:var(--texto-mutado);letter-spacing:0.08em;margin-bottom:10px;">FICHA: ' + clase.ficha + ' | INST: ' + clase.instructor + '</p>' +
+            '<div class="sep-neon"></div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 14px;">' + badges + '</div>' +
+            '<button class="btn-accion btn-accion-azul btn-abrir-clase" style="width:100%;">ACCEDER A LA CLASE</button>';
+
+        card.querySelector(".btn-abrir-clase").onclick = function() { abrirPanelAprendiz(clase.id); };
+        cont.appendChild(card);
     });
 }
 
-function abrirMenuEvaluacionesAprendiz(claseId) {
+function abrirPanelAprendiz(claseId) {
     syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
+    var clase = appState.clases.find(function(c) { return c.id === claseId; });
+    if (!clase) return;
+    var panel = document.getElementById("contenedorPestanaFlotante");
+    panel.classList.remove("hidden");
+    panel.innerHTML =
+        '<div class="neon-overlay">' +
+            '<div class="neon-modal" style="max-width:880px;width:100%;">' +
+                '<button class="btn-cerrar-modal" id="btnCerrarAp">✕</button>' +
+                '<h3 style="margin-bottom:4px;">' + clase.nombre.toUpperCase() + '</h3>' +
+                '<p style="color:var(--texto-mutado);font-size:0.78rem;margin-bottom:18px;letter-spacing:0.06em;">FICHA: ' + clase.ficha + '</p>' +
+                '<div class="tabs-bar">' +
+                    '<button class="tab-ap btn-primary" data-tab="preguntas">PREGUNTAS</button>' +
+                    '<button class="tab-ap btn-primary" data-tab="examenes" style="background:var(--neon-cyan);color:#000;">EXAMENES</button>' +
+                    '<button class="tab-ap btn-primary" data-tab="montajes" style="background:var(--neon-purple);">MONTAJES</button>' +
+                    '<button class="tab-ap btn-primary" data-tab="historial" style="background:var(--neon-green);color:#000;">HISTORIAL</button>' +
+                '</div>' +
+                '<div id="tabApCont"></div>' +
+            '</div>' +
+        '</div>';
 
-    const respondidas = (clase.answersLog || []).filter(r => r.alumno === appState.user.email && r.tipo === 'pregunta_suelta').map(r => r.idMeta);
-    const pendientes = clase.preguntasCargadas.filter(p => !respondidas.includes(p.id));
+    document.getElementById("btnCerrarAp").onclick = function() {
+        panel.innerHTML = "";
+        panel.classList.add("hidden");
+        renderAprendizClases();
+    };
+    panel.querySelectorAll(".tab-ap").forEach(function(t) {
+        t.onclick = function() { renderTabAprendiz(claseId, this.dataset.tab); };
+    });
+    renderTabAprendiz(claseId, "preguntas");
+}
 
-    let htmlBotes = "";
-    if (pendientes.length > 0) {
-        htmlBotes += `<button class="opcion-pestana" onclick="presentarPreguntasSueltasAprendiz('${claseId}')">🔥 Resolver Banco de Preguntas Sueltas (${pendientes.length} Disponibles)</button>`;
+function renderTabAprendiz(claseId, tab) {
+    syncData();
+    var clase = appState.clases.find(function(c) { return c.id === claseId; });
+    var cont = document.getElementById("tabApCont");
+    if (!cont) return;
+    if (tab === "preguntas") renderTabApPreguntas(clase, cont, claseId);
+    else if (tab === "examenes") renderTabApExamenes(clase, cont, claseId);
+    else if (tab === "montajes") renderTabApMontajes(clase, cont, claseId);
+    else if (tab === "historial") renderTabApHistorial(clase, cont);
+}
+
+/* ── Aprendiz: Pregunta individual (desaparece al responder) ── */
+function renderTabApPreguntas(clase, cont, claseId) {
+    var log = (clase.answersLog || []).filter(function(e) { return e.alumno === appState.user.email && e.tipo === "pregunta_individual"; });
+    var respondidas = log.map(function(e) { return e.idMeta; });
+    var pendientes = (clase.preguntasIndividuales || []).filter(function(p) { return respondidas.indexOf(p.id) === -1; });
+    var total = (clase.preguntasIndividuales || []).length;
+
+    if (pendientes.length === 0) {
+        cont.innerHTML = '<div style="text-align:center;padding:40px;"><p style="font-size:2rem;margin-bottom:10px;">✓</p><p style="font-weight:700;color:var(--neon-green);letter-spacing:0.06em;">TODAS LAS PREGUNTAS COMPLETADAS</p><p style="color:var(--texto-mutado);font-size:0.85rem;margin-top:6px;">Revisa tu historial para ver tus resultados.</p></div>';
+        return;
     }
 
-    if (clase.examenesCreadosEstructurados && clase.examenesCreadosEstructurados.length > 0) {
-        clase.examenesCreadosEstructurados.forEach((ex, index) => {
-            const yaHecho = (clase.answersLog || []).some(r => r.alumno === appState.user.email && r.idMeta === ex.idExamen);
-            if (!yaHecho) {
-                if (ex.tipo === 'simulador_mapeado') {
-                    htmlBotes += `<button class="opcion-pestana" style="background:#1e1b4b; border-color:#4338ca; margin-top:8px;" onclick="window.location.href='simuladorMapeado.html?claseId=${claseId}&examId=${ex.idExamen}'">🧩 Ejecutar Simulador Técnico Estructurado N° ${index + 1}</button>`;
-                } else {
-                    htmlBotes += `<button class="opcion-pestana" style="background:var(--acento-morado); border-color:#6d28d9; margin-top:8px;" onclick="presentarExamenFlotanteAprendiz('${claseId}', '${ex.idExamen}')">📝 Presentar Evaluación Modular N° ${index + 1} (${ex.tipo.toUpperCase()})</button>`;
-                }
+    var pregunta = pendientes[0];
+    var opcionesHTML = pregunta.opciones.map(function(op, i) {
+        var esImg = op.startsWith("http") || op.startsWith("data:image");
+        return '<label id="lblOp_' + i + '" style="background:rgba(255,255,255,0.02);border:1px solid rgba(0,212,255,0.15);padding:12px 14px;border-radius:8px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:all 0.2s;">' +
+            '<input type="radio" name="respAp" value="' + i + '" style="cursor:pointer;flex-shrink:0;">' +
+            (esImg ? '<img src="' + op + '" style="max-height:80px;border-radius:4px;" onerror="this.style.display=\'none\'">' : '<span>' + String.fromCharCode(65+i) + '. ' + op + '</span>') +
+        '</label>';
+    }).join('');
+
+    cont.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+            '<p style="color:var(--texto-mutado);font-size:0.82rem;letter-spacing:0.06em;">PREGUNTA ' + (respondidas.length+1) + ' DE ' + total + '</p>' +
+            '<span style="background:rgba(168,85,247,0.15);color:var(--neon-purple);border:1px solid rgba(168,85,247,0.3);padding:3px 10px;border-radius:10px;font-size:0.8rem;font-weight:700;">' + pregunta.puntos + ' PTS</span>' +
+        '</div>' +
+        '<div class="card" id="cardPregunta">' +
+            '<p style="font-weight:700;font-size:1.05rem;margin-bottom:14px;color:var(--texto-principal);">' + pregunta.pregunta + '</p>' +
+            (pregunta.image ? '<img src="' + pregunta.image + '" style="max-height:180px;max-width:100%;object-fit:contain;display:block;border-radius:8px;border:1px solid rgba(0,212,255,0.2);margin-bottom:14px;" onerror="this.style.display=\'none\'">' : '') +
+            '<div style="display:flex;flex-direction:column;gap:8px;" id="opcionesPQ">' + opcionesHTML + '</div>' +
+            '<button id="btnConfirmarResp" class="btn-primary" style="width:100%;margin-top:16px;">CONFIRMAR RESPUESTA</button>' +
+        '</div>' +
+        (pendientes.length - 1 > 0 ? '<p style="text-align:center;color:var(--texto-mutado);font-size:0.82rem;margin-top:10px;">' + (pendientes.length-1) + ' pregunta(s) restantes</p>' : '');
+
+    document.getElementById("btnConfirmarResp").onclick = function() {
+        var checked = document.querySelector('input[name="respAp"]:checked');
+        if (!checked) return alert("Selecciona una opcion.");
+        var seleccionada = parseInt(checked.value);
+        var esCorrecto = seleccionada === pregunta.correcta;
+
+        document.getElementById("btnConfirmarResp").disabled = true;
+        document.querySelectorAll('input[name="respAp"]').forEach(function(r) { r.disabled = true; });
+
+        pregunta.opciones.forEach(function(_, i) {
+            var lbl = document.getElementById("lblOp_" + i);
+            if (i === pregunta.correcta) {
+                lbl.style.borderColor = "var(--neon-green)";
+                lbl.style.background = "rgba(0,255,136,0.1)";
+                lbl.style.boxShadow = "0 0 12px rgba(0,255,136,0.2)";
+            } else if (i === seleccionada && !esCorrecto) {
+                lbl.style.borderColor = "var(--neon-pink)";
+                lbl.style.background = "rgba(255,45,85,0.1)";
             }
         });
-    } else {
-        const yaPracticadoGuiado = (clase.answersLog || []).some(r => r.alumno === appState.user.email && r.idMeta === 'simulador-guiado-completo');
-        if(!yaPracticadoGuiado) {
-            htmlBotes += `<button class="opcion-pestana" style="background:#1e1b4b; border-color:#4338ca; margin-top:8px;" onclick="window.location.href='simulacion.html?claseId=${claseId}'">🔧 Ejecutar Laboratorio Práctico de Ensamble</button>`;
-        }
-    }
 
-    if(htmlBotes === "") {
-        htmlBotes = "<p style='color:var(--texto-mutated || #a1a1aa); text-align:center; padding:15px;'>No posees exámenes o simulaciones agendadas en este ambiente.</p>";
-    }
+        var banner = document.createElement("div");
+        banner.style.cssText = "text-align:center;padding:16px;margin-top:14px;border-radius:8px;background:" + (esCorrecto ? "rgba(0,255,136,0.08)" : "rgba(255,45,85,0.08)") + ";border:1px solid " + (esCorrecto ? "var(--neon-green)" : "var(--neon-pink)") + ";box-shadow:" + (esCorrecto ? "var(--glow-green)" : "var(--glow-red)") + ";";
+        banner.innerHTML =
+            '<p style="font-size:1.5rem;margin-bottom:4px;">' + (esCorrecto ? "✓" : "✗") + '</p>' +
+            '<p style="font-weight:800;color:' + (esCorrecto ? "var(--neon-green)" : "var(--neon-pink)") + ';font-size:1rem;letter-spacing:0.06em;">' + (esCorrecto ? "CORRECTO" : "INCORRECTO") + '</p>' +
+            '<p style="font-size:0.85rem;color:var(--texto-mutado);margin-top:5px;">' + (esCorrecto ? "+" + pregunta.puntos + " puntos" : "Correcta: " + String.fromCharCode(65+pregunta.correcta) + ". " + pregunta.opciones[pregunta.correcta]) + '</p>';
+        document.getElementById("cardPregunta").appendChild(banner);
 
-    modal.innerHTML = `
-        <div class="pestana-contenido">
-            <div class="pestana-header">
-                <h3>Evaluaciones de Rendimiento Modular</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <div class="pestana-scroll" style="margin-top:15px;">${htmlBotes}</div>
-        </div>
-    `;
-}
-
-function presentarPreguntasSueltasAprendiz(claseId) {
-    syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
-
-    const respondidas = (clase.answersLog || []).filter(r => r.alumno === appState.user.email && r.tipo === 'pregunta_suelta').map(r => r.idMeta);
-    const pendientes = clase.preguntasCargadas.filter(p => !respondidas.includes(p.id));
-
-    let htmlContenido = "";
-    if(pendientes.length === 0) {
-        htmlContenido = "<p style='color:var(--acento-verde); font-weight:bold;'>🎉 ¡Has completado todas las preguntas sueltas asignadas!</p>";
-    } else {
-        pendientes.forEach(p => {
-            htmlContenido += `
-                <div class="item-pregunta-banco">
-                    <p style="font-weight:600; margin-bottom:10px;">¿${p.pregunta}</p>
-                    ${p.image ? `<img src="${p.image}" style="max-height:160px; border-radius:6px; display:block; margin-bottom:12px;">` : ''}
-                    <div style="display:flex; flex-direction:column; gap:8px;">
-                        ${p.opciones.map((op, oIdx) => `
-                            <button class="btn-primary" style="background:var(--bg-inputs); border:1px solid var(--borde); text-align:left; justify-content:flex-start;" 
-                                    onclick="guardarRespuestaSueltaAprendiz('${claseId}', '${p.id}', ${oIdx})">
-                                ${String.fromCharCode(65 + oIdx)}. ${op}
-                            </button>
-                        `).join('')}
-                    </div>
-                </div>
-            `;
-        });
-    }
-
-    modal.innerHTML = `
-        <div class="pestana-contenido">
-            <div class="pestana-header">
-                <h3>Preguntas Técnicas Disponibles</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <div class="pestana-scroll">${htmlContenido}</div>
-        </div>
-    `;
-}
-
-function guardarRespuestaSueltaAprendiz(claseId, preguntaId, opcionSeleccionada) {
-    syncData();
-    let clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
-    let cIdx = clases.findIndex(c => c.id === claseId);
-
-    if (cIdx !== -1) {
-        const pOriginal = clases[cIdx].preguntasCargadas.find(p => String(p.id) === String(preguntaId));
-        const acierto = (pOriginal.correcta === opcionSeleccionada);
-
-        if(!clases[cIdx].answersLog) clases[cIdx].answersLog = [];
-
-        clases[cIdx].answersLog.push({
-            alumno: appState.user.email,
-            tipo: 'pregunta_suelta',
-            idMeta: preguntaId,
-            enunciado: pOriginal.pregunta,
-            nota: acierto ? 100 : 0,
-            esCorrecto: acierto,
+        var clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
+        var ci = clases.findIndex(function(c) { return c.id === claseId; });
+        if (!clases[ci].answersLog) clases[ci].answersLog = [];
+        clases[ci].answersLog.push({
+            alumno: appState.user.email, tipo: "pregunta_individual",
+            idMeta: pregunta.id, enunciado: pregunta.pregunta,
+            image: pregunta.image || "", opciones: pregunta.opciones,
+            seleccionada: seleccionada, correcta: pregunta.correcta,
+            esCorrecto: esCorrecto, puntos: esCorrecto ? pregunta.puntos : 0,
             timestamp: Date.now()
         });
-
         localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
-        alert(acierto ? "¡Respuesta Correcta guardada!" : "Respuesta Guardada. Sigue practicando.");
-        presentarPreguntasSueltasAprendiz(claseId);
+        syncData();
+        setTimeout(function() { renderTabAprendiz(claseId, "preguntas"); }, 2200);
+    };
+}
+
+/* ── Aprendiz: Examenes ── */
+function renderTabApExamenes(clase, cont, claseId) {
+    var log = (clase.answersLog || []).filter(function(e) { return e.alumno === appState.user.email && e.tipo === "examen_total"; });
+    var exRes = log.map(function(e) { return e.idMeta; });
+    var examenes = clase.examenesCreadosEstructurados || [];
+    if (examenes.length === 0) {
+        cont.innerHTML = '<p style="color:var(--texto-mutado);font-size:0.85rem;">// No hay examenes en esta clase.</p>';
+        return;
     }
+    var html = '<div style="display:flex;flex-direction:column;gap:12px;">';
+    examenes.forEach(function(ex) {
+        var resuelto = exRes.indexOf(ex.idExamen) !== -1;
+        var resultado = resuelto ? log.find(function(e) { return e.idMeta === ex.idExamen; }) : null;
+        html += '<div class="item-lista" style="border-left-color:' + (resuelto ? 'var(--neon-green)' : 'var(--neon-cyan)') + ';">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+                '<div><p style="font-weight:700;">' + ex.nombre + '</p>' +
+                '<p style="color:var(--texto-mutado);font-size:0.8rem;">' + (ex.preguntas||[]).length + ' preguntas</p>' +
+                (resuelto ? '<span style="font-size:0.78rem;background:' + (resultado.nota >= 60 ? 'rgba(0,255,136,0.1)' : 'rgba(255,45,85,0.1)') + ';color:' + (resultado.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';border:1px solid ' + (resultado.nota >= 60 ? 'rgba(0,255,136,0.3)' : 'rgba(255,45,85,0.3)') + ';padding:2px 8px;border-radius:8px;margin-top:4px;display:inline-block;">NOTA: ' + resultado.nota + '%</span>' : '') +
+                '</div>' +
+                (!resuelto ? '<button class="btn-accion btn-accion-azul btn-iniciar-ex" data-cid="' + claseId + '" data-eid="' + ex.idExamen + '" style="flex-shrink:0;padding:8px 14px;">INICIAR</button>' : '<span style="color:var(--neon-green);font-weight:700;font-size:0.85rem;flex-shrink:0;">COMPLETADO</span>') +
+            '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    cont.innerHTML = html;
+    cont.querySelectorAll(".btn-iniciar-ex").forEach(function(btn) {
+        btn.onclick = function() {
+            window.location.href = 'quiz.html?claseId=' + btn.dataset.cid + '&examId=' + btn.dataset.eid + '&modo=normal';
+        };
+    });
 }
 
-function presentarExamenFlotanteAprendiz(claseId, examId) {
-    window.location.href = `quiz.html?claseId=${claseId}&examId=${examId}&modo=multiple`;
+/* ── Aprendiz: Montajes ── */
+function renderTabApMontajes(clase, cont, claseId) {
+    var log = (clase.answersLog || []).filter(function(e) { return e.alumno === appState.user.email && e.tipo === "montaje"; });
+    var mtRes = log.map(function(e) { return e.idMeta; });
+    var montajes = clase.montajes || [];
+    if (montajes.length === 0) {
+        cont.innerHTML = '<p style="color:var(--texto-mutado);font-size:0.85rem;">// No hay montajes en esta clase.</p>';
+        return;
+    }
+    var html = '<div style="display:flex;flex-direction:column;gap:12px;">';
+    montajes.forEach(function(m) {
+        var resuelto = mtRes.indexOf(m.id) !== -1;
+        var resultado = resuelto ? log.find(function(e) { return e.idMeta === m.id; }) : null;
+        html += '<div class="item-lista" style="border-left-color:' + (resuelto ? 'var(--neon-green)' : 'var(--neon-purple)') + ';">' +
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+                '<div><p style="font-weight:700;">' + m.nombre + '</p>' +
+                '<p style="color:var(--texto-mutado);font-size:0.8rem;">' + (m.piezas||[]).length + ' piezas</p>' +
+                (resuelto ? '<span style="font-size:0.78rem;background:' + (resultado.nota >= 60 ? 'rgba(0,255,136,0.1)' : 'rgba(255,45,85,0.1)') + ';color:' + (resultado.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';border:1px solid ' + (resultado.nota >= 60 ? 'rgba(0,255,136,0.3)' : 'rgba(255,45,85,0.3)') + ';padding:2px 8px;border-radius:8px;margin-top:4px;display:inline-block;">NOTA: ' + resultado.nota + '% (' + resultado.correctas + '/' + resultado.total + ')</span>' : '') +
+                '</div>' +
+                (!resuelto ? '<button class="btn-accion btn-accion-morado btn-iniciar-mt" data-mid="' + m.id + '" style="flex-shrink:0;padding:8px 14px;">INICIAR</button>' : '<span style="color:var(--neon-green);font-weight:700;font-size:0.85rem;flex-shrink:0;">COMPLETADO</span>') +
+            '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    cont.innerHTML = html;
+    cont.querySelectorAll(".btn-iniciar-mt").forEach(function(btn) {
+        btn.onclick = function() { iniciarMontajeAp(claseId, btn.dataset.mid); };
+    });
 }
 
-function abrirHistorialClinicoNotas(claseId) {
+function iniciarMontajeAp(claseId, montajeId) {
     syncData();
-    const clase = appState.clases.find(c => c.id === claseId);
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.remove("hidden");
-    modal.className = "pestana-flotante";
+    var clase = appState.clases.find(function(c) { return c.id === claseId; });
+    var montaje = (clase.montajes || []).find(function(m) { return m.id === montajeId; });
+    if (!montaje) return;
+    var cont = document.getElementById("tabApCont");
+    var piezasShuffled = montaje.piezas.slice().sort(function() { return Math.random() - 0.5; });
+    var placements = {};
+    var canvasW = montaje.canvasW || 700;
+    var canvasH = montaje.canvasH || 340;
 
-    const misRespuestas = (clase.answersLog || []).filter(r => r.alumno === appState.user.email && r.tipo !== 'pregunta_examen_interna');
+    var bancoPiezasHTML = piezasShuffled.map(function(p) {
+        return '<div id="pieza_ap_' + p.id + '" draggable="true" data-pieza-id="' + p.id + '" class="pieza-draggable">' +
+            (p.tipo === "imagen" ? '<img src="' + p.contenido + '" style="max-height:55px;max-width:90px;object-fit:contain;border-radius:4px;pointer-events:none;" onerror="this.parentElement.innerHTML=\'<span>IMG</span>\'">' : '<span>' + p.contenido + '</span>') +
+        '</div>';
+    }).join('');
 
-    let totalNotas = 0;
-    let totalItems = 0;
-    misRespuestas.forEach(r => {
-        totalNotas += r.nota;
-        totalItems++;
+    var slotsHTML = montaje.puntos.map(function(pt) {
+        var pctX = ((pt.x / canvasW) * 100).toFixed(2);
+        var pctY = ((pt.y / canvasH) * 100).toFixed(2);
+        return '<div id="slot_ap_' + pt.id + '" data-slot-id="' + pt.id + '" data-pieza-correcta="' + pt.piezaId + '" ' +
+            'ondragover="event.preventDefault()" ondrop="window._apDrop(event,\'' + pt.id + '\',\'' + claseId + '\',\'' + montajeId + '\')" ' +
+            'style="position:absolute;left:' + pctX + '%;top:' + pctY + '%;transform:translate(-50%,-50%);width:64px;height:64px;border:2px dashed rgba(0,212,255,0.3);border-radius:8px;background:rgba(0,212,255,0.03);display:flex;align-items:center;justify-content:center;overflow:hidden;">' +
+            '<span style="color:rgba(0,212,255,0.25);font-size:1.2rem;">○</span>' +
+        '</div>';
+    }).join('');
+
+    cont.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+            '<h4>' + montaje.nombre.toUpperCase() + '</h4>' +
+            '<button class="btn-mini-rojo" id="btnVolverMt">VOLVER</button>' +
+        '</div>' +
+        '<p style="color:var(--texto-mutado);font-size:0.82rem;margin-bottom:12px;letter-spacing:0.04em;">Arrastra cada pieza a su zona correcta en el diagrama.</p>' +
+        '<div style="background:rgba(0,0,0,0.3);border:1px solid rgba(0,212,255,0.1);border-radius:8px;padding:12px;margin-bottom:12px;">' +
+            '<p style="font-size:0.78rem;color:var(--neon-cyan);margin-bottom:8px;letter-spacing:0.08em;">BANCO DE PIEZAS:</p>' +
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;" id="bancoPiezasAp">' + bancoPiezasHTML + '</div>' +
+        '</div>' +
+        '<div style="position:relative;width:100%;max-width:' + canvasW + 'px;margin:0 auto;background:#020408;border:1px solid rgba(0,212,255,0.15);border-radius:10px;overflow:hidden;" id="canvasApMontaje">' +
+            '<div style="padding-top:' + ((canvasH/canvasW)*100).toFixed(2) + '%;"></div>' +
+            (montaje.fondo ? '<img src="' + montaje.fondo + '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;opacity:0.5;" onerror="this.style.display=\'none\'">' : '') +
+            slotsHTML +
+        '</div>' +
+        '<button id="btnEnviarMontajeAp" class="btn-accion btn-accion-verde" style="width:100%;max-width:' + canvasW + 'px;margin:14px auto 0;display:block;">ENVIAR MONTAJE</button>';
+
+    document.getElementById("btnVolverMt").onclick = function() { renderTabAprendiz(claseId, "montajes"); };
+
+    cont.querySelectorAll(".pieza-draggable").forEach(function(el) {
+        el.ondragstart = function(e) { e.dataTransfer.setData("text/plain", el.dataset.piezaId); };
     });
 
-    const rendimientoGlobalCalculated = totalItems > 0 ? Math.round(totalNotas / totalItems) : 0;
-    let htmlLog = "";
+    window._apDrop = function(e, slotId, cId, mId) {
+        e.preventDefault();
+        var piezaId = e.dataTransfer.getData("text/plain");
+        var slot = document.getElementById("slot_ap_" + slotId);
+        var piezaEl = document.getElementById("pieza_ap_" + piezaId);
+        var mont = (appState.clases.find(function(c) { return c.id === cId; }).montajes || []).find(function(m) { return m.id === mId; });
+        var pieza = mont && mont.piezas.find(function(p) { return p.id === piezaId; });
+        if (!pieza || !slot) return;
+        if (placements[slotId]) {
+            var prevEl = document.getElementById("pieza_ap_" + placements[slotId]);
+            if (prevEl) prevEl.style.opacity = "1";
+        }
+        placements[slotId] = piezaId;
+        piezaEl.style.opacity = "0.2";
+        slot.innerHTML = pieza.tipo === "imagen"
+            ? '<img src="' + pieza.contenido + '" style="max-height:58px;max-width:58px;object-fit:contain;border-radius:5px;">'
+            : '<span style="font-size:0.76rem;font-weight:700;text-align:center;color:var(--texto-principal);padding:2px;word-break:break-word;">' + pieza.contenido.substring(0,14) + '</span>';
+        slot.style.borderColor = "var(--neon-cyan)";
+        slot.style.borderStyle = "solid";
+        slot.style.background = "rgba(0,212,255,0.08)";
+        slot.style.boxShadow = "var(--glow-cyan)";
+    };
 
-    if(misRespuestas.length === 0) {
-        htmlLog = "<p style='color:var(--texto-mutated || #a1a1aa); font-style:italic;'>No se han registrado respuestas ni notas históricas en tu perfil.</p>";
-    } else {
-        misRespuestas.forEach(r => {
-            htmlLog += `
-                <div class="item-pregunta-banco" style="border-left: 5px solid ${r.nota >= 60 ? 'var(--acento-verde)' : 'var(--acento-rojo)'}">
-                    <p><span style="background:var(--acento-azul); padding:3px 7px; font-size:0.75rem; font-weight:700; border-radius:4px; margin-right:6px;">EVALUACIÓN</span> <strong>${r.enunciado}</strong></p>
-                    <p style="margin-top:6px; font-size:0.95rem;">Nota Registrada: <strong style="color:var(--acento-verde);">${r.nota}%</strong></p>
-                </div>
-            `;
+    document.getElementById("btnEnviarMontajeAp").onclick = function() {
+        var total = montaje.puntos.length;
+        var correctas = montaje.puntos.filter(function(pt) { return placements[pt.id] === pt.piezaId; }).length;
+        var nota = Math.round((correctas / total) * 100);
+        var clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
+        var ci = clases.findIndex(function(c) { return c.id === claseId; });
+        if (!clases[ci].answersLog) clases[ci].answersLog = [];
+        clases[ci].answersLog.push({
+            alumno: appState.user.email, tipo: "montaje",
+            idMeta: montajeId, enunciado: montaje.nombre,
+            nota: nota, esCorrecto: nota === 100,
+            correctas: correctas, total: total, timestamp: Date.now()
         });
-    }
-
-    modal.innerHTML = `
-        <div class="pestana-contenido">
-            <div class="pestana-header">
-                <h3>Historial Clínico de Puntuaciones</h3>
-                <button class="btn-cerrar-flotante" onclick="cerrarPestanaFlotante()">×</button>
-            </div>
-            <div class="badge-global-porcentaje" style="background:#1c1917; padding:12px; border-radius:6px; margin-bottom:15px; text-align:center; border:1px solid var(--borde);">
-                <p style="font-size:0.85rem; color:var(--texto-mutated || #a1a1aa)">Rendimiento Integrado General</p>
-                <h2 style="font-size:1.8rem; font-weight:800; color:var(--acento-morado); margin-top:4px;">${rendimientoGlobalCalculated}%</h2>
-            </div>
-            <div class="pestana-scroll">${htmlLog}</div>
-        </div>
-    `;
+        localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+        syncData();
+        alert("Montaje enviado.\nCorrectas: " + correctas + "/" + total + " | Nota: " + nota + "%");
+        renderTabAprendiz(claseId, "montajes");
+    };
 }
 
-function cerrarPestanaFlotante() {
-    const modal = document.getElementById("contenedorPestanaFlotante");
-    modal.classList.add("hidden");
-    if(appState.user.role === "INSTRUCTOR") {
-        renderInstructorClases();
-    } else {
-        renderAprendizClases();
+/* ── Aprendiz: Historial ── */
+function renderTabApHistorial(clase, cont) {
+    var log = (clase.answersLog || [])
+        .filter(function(e) { return e.alumno === appState.user.email && e.tipo !== "pregunta_examen_interna"; })
+        .sort(function(a, b) { return (b.timestamp||0) - (a.timestamp||0); });
+    if (log.length === 0) {
+        cont.innerHTML = '<p style="color:var(--texto-mutado);font-size:0.85rem;">// Sin actividad aun.</p>';
+        return;
     }
+    var puntosTotal = log.filter(function(e) { return e.tipo === "pregunta_individual"; })
+        .reduce(function(s, e) { return s + (e.puntos||0); }, 0);
+    var html =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+            '<h4>HISTORIAL ACADEMICO</h4>' +
+            '<span style="background:rgba(0,212,255,0.1);color:var(--neon-cyan);border:1px solid rgba(0,212,255,0.3);padding:4px 14px;border-radius:10px;font-size:0.82rem;font-weight:800;box-shadow:var(--glow-cyan);">' + puntosTotal + ' PTS</span>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:10px;">';
+    log.forEach(function(e) {
+        var col = "var(--neon-purple)";
+        var label = "PREGUNTA";
+        if (e.tipo === "examen_total") { col = "var(--neon-cyan)"; label = "EXAMEN"; }
+        if (e.tipo === "montaje") { col = "var(--neon-purple)"; label = "MONTAJE"; }
+        if (e.tipo === "simulador") { col = "var(--neon-green)"; label = "SIMULACION"; }
+        var tieneNota = e.nota !== undefined;
+        html += '<div class="item-resultado" style="border-left-color:' + col + ';">' +
+            '<div style="display:flex;justify-content:space-between;align-items:start;gap:10px;">' +
+                '<div style="flex:1;">' +
+                    '<p style="font-size:0.78rem;color:' + col + ';font-weight:700;letter-spacing:0.06em;margin-bottom:3px;">[' + label + ']</p>' +
+                    '<p style="font-weight:600;font-size:0.9rem;">' + e.enunciado + '</p>' +
+                    (e.tipo === "pregunta_individual" && e.opciones ? '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-top:5px;">Tu resp: <span style="color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + e.opciones[e.seleccionada] + '</span>' + (!e.esCorrecto ? ' | OK: <span style="color:var(--neon-green);font-weight:700;">' + e.opciones[e.correcta] + '</span>' : '') + '</p>' : '') +
+                    (e.timestamp ? '<p style="font-size:0.74rem;color:var(--texto-mutado);margin-top:4px;">' + new Date(e.timestamp).toLocaleString("es-CO") + '</p>' : '') +
+                '</div>' +
+                '<div style="text-align:right;flex-shrink:0;">' +
+                    (tieneNota ? '<span style="background:' + (e.nota >= 60 ? 'rgba(0,255,136,0.15)' : 'rgba(255,45,85,0.15)') + ';color:' + (e.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';border:1px solid ' + (e.nota >= 60 ? 'rgba(0,255,136,0.3)' : 'rgba(255,45,85,0.3)') + ';padding:4px 10px;border-radius:10px;font-size:0.82rem;font-weight:800;">' + e.nota + '%</span>' : '') +
+                    (!tieneNota && e.esCorrecto !== undefined ? '<span style="font-weight:800;color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">' + (e.esCorrecto ? '✓' : '✗') + '</span>' : '') +
+                    (e.tipo === "pregunta_individual" ? '<p style="font-size:0.78rem;color:var(--neon-cyan);margin-top:4px;">' + (e.esCorrecto ? '+' : '') + (e.puntos||0) + ' pts</p>' : '') +
+                '</div>' +
+            '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    cont.innerHTML = html;
 }
