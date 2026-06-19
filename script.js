@@ -178,14 +178,20 @@ function renderTabInstructor(claseId, tab) {
 /* ── Tab Preguntas individuales ── */
 function renderTabPreguntas(clase, cont, claseId) {
     var preguntas = clase.preguntasIndividuales || [];
+
+    function imgTag(url, h) {
+        if (!url) return '';
+        return '<img src="' + url + '" referrerpolicy="no-referrer" style="max-height:' + (h||70) + 'px;max-width:200px;object-fit:contain;border-radius:4px;margin:6px 0;display:block;border:1px solid rgba(0,212,255,0.15);" onerror="this.style.display=\'none\'">';
+    }
+
     var listaHTML = preguntas.length === 0
-        ? '<p style="color:var(--texto-mutado);font-size:0.85rem;">// Sin preguntas aun.</p>'
+        ? '<p style="color:var(--texto-mutado);font-size:0.85rem;">// Sin preguntas creadas aun.</p>'
         : preguntas.map(function(p, idx) {
             return '<div class="item-lista">' +
                 '<div style="display:flex;justify-content:space-between;align-items:start;gap:10px;">' +
                     '<div style="flex:1;">' +
                         '<p style="font-weight:600;">' + (idx+1) + '. ' + p.pregunta + '</p>' +
-                        (p.image ? '<img src="' + p.image + '" style="max-height:70px;max-width:180px;object-fit:contain;border-radius:4px;margin:6px 0;display:block;" onerror="this.style.display=\'none\'">' : '') +
+                        imgTag(p.image, 80) +
                         '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-top:5px;">' +
                             p.opciones.map(function(op, i) {
                                 return '<span style="margin-right:8px;' + (i === p.correcta ? 'color:var(--neon-green);font-weight:700;' : '') + '">' + String.fromCharCode(65+i) + ') ' + op + '</span>';
@@ -198,12 +204,33 @@ function renderTabPreguntas(clase, cont, claseId) {
             '</div>';
         }).join('');
 
+    /* Banco de 30 preguntas predeterminadas */
+    var banco30 = (typeof bancoPredeterminado30 !== 'undefined') ? bancoPredeterminado30 : [];
+    var bancoPQIds = preguntas.map(function(p) { return p.pregunta; });
+    var bancoHTML = banco30.map(function(p) {
+        var yaAgregada = bancoPQIds.indexOf(p.pregunta) !== -1;
+        return '<div style="background:rgba(0,212,255,0.02);border:1px solid rgba(0,212,255,0.08);border-radius:6px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
+            '<div style="flex:1;">' +
+                '<p style="font-size:0.84rem;font-weight:600;">' + p.pregunta + '</p>' +
+                '<p style="font-size:0.76rem;color:var(--texto-mutado);margin-top:3px;">' +
+                    p.opciones.map(function(op,i){ return '<span style="margin-right:6px;' + (i===p.correcta?'color:var(--neon-green);font-weight:700;':'') + '">' + String.fromCharCode(65+i) + ') ' + op + '</span>'; }).join('') +
+                '</p>' +
+            '</div>' +
+            (yaAgregada
+                ? '<span style="color:var(--neon-green);font-size:0.76rem;flex-shrink:0;">YA AGREGADA</span>'
+                : '<button class="btn-mini-azul btn-banco-add" data-bancoidx="' + banco30.indexOf(p) + '" style="flex-shrink:0;">+ AGREGAR</button>') +
+        '</div>';
+    }).join('');
+
     cont.innerHTML =
         '<div class="seccion-form">' +
-            '<h4 style="margin-bottom:12px;">AGREGAR PREGUNTA</h4>' +
+            '<h4 style="margin-bottom:12px;">AGREGAR PREGUNTA PROPIA</h4>' +
             '<input type="text" id="pqEnunciado" placeholder="// Enunciado de la pregunta" class="input-dajox" style="width:100%;margin-bottom:8px;">' +
-            '<input type="text" id="pqImagen" placeholder="// URL de imagen (opcional)" class="input-dajox" style="width:100%;margin-bottom:6px;">' +
-            '<div id="pqImgPrev" style="margin-bottom:8px;"></div>' +
+            '<div style="display:flex;gap:8px;margin-bottom:6px;">' +
+                '<input type="text" id="pqImagen" placeholder="// URL de imagen (opcional)" class="input-dajox" style="flex:1;">' +
+                '<button id="btnPrevImg" class="btn-primary" style="flex-shrink:0;font-size:0.8rem;background:var(--neon-cyan);color:#000;">VER</button>' +
+            '</div>' +
+            '<div id="pqImgPrev" style="margin-bottom:8px;min-height:0;"></div>' +
             ['A','B','C','D'].map(function(l, i) {
                 return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
                     '<label style="min-width:72px;font-size:0.82rem;color:var(--texto-mutado);">OPC ' + l + ':</label>' +
@@ -219,8 +246,21 @@ function renderTabPreguntas(clase, cont, claseId) {
                 '<button id="btnAgregarPQ" class="btn-primary" style="margin-left:auto;">+ AGREGAR</button>' +
             '</div>' +
         '</div>' +
-        '<h4 style="margin:18px 0 10px;">BANCO (' + preguntas.length + ')</h4>' +
-        listaHTML;
+        '<h4 style="margin:18px 0 10px;">MIS PREGUNTAS (' + preguntas.length + ')</h4>' +
+        listaHTML +
+        '<details style="margin-top:18px;">' +
+            '<summary style="cursor:pointer;color:var(--neon-cyan);font-size:0.85rem;letter-spacing:0.06em;padding:8px 0;font-weight:700;">BANCO PREDETERMINADO (' + banco30.length + ' preguntas) — clic para expandir</summary>' +
+            '<div style="margin-top:10px;">' + bancoHTML + '</div>' +
+        '</details>';
+
+    /* Preview de imagen */
+    function showImgPrev(url) {
+        var prev = document.getElementById("pqImgPrev");
+        if (!url) { prev.innerHTML = ''; return; }
+        prev.innerHTML = '<img src="' + url + '" referrerpolicy="no-referrer" style="max-height:100px;max-width:200px;object-fit:contain;border-radius:6px;border:1px solid rgba(0,212,255,0.2);" onerror="this.parentElement.innerHTML=\'<p style=\'color:var(--neon-pink);font-size:0.8rem;\'>No se puede cargar la imagen. Verifica la URL.</p>\'">';
+    }
+    document.getElementById("pqImagen").oninput = function() { showImgPrev(this.value.trim()); };
+    document.getElementById("btnPrevImg").onclick = function() { showImgPrev(document.getElementById("pqImagen").value.trim()); };
 
     document.getElementById("pqImagen").oninput = function() {
         var url = this.value.trim();
@@ -234,6 +274,23 @@ function renderTabPreguntas(clase, cont, claseId) {
             prev.appendChild(img);
         } else { prev.innerHTML = ""; }
     };
+
+    /* Agregar desde banco predeterminado */
+    cont.querySelectorAll(".btn-banco-add[data-bancoidx]").forEach(function(btn) {
+        btn.onclick = function() {
+            var banco30 = (typeof bancoPredeterminado30 !== 'undefined') ? bancoPredeterminado30 : [];
+            var p = banco30[parseInt(btn.dataset.bancoidx)];
+            if (!p) return;
+            var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+            if (!appState.clases[idx].preguntasIndividuales) appState.clases[idx].preguntasIndividuales = [];
+            appState.clases[idx].preguntasIndividuales.push({
+                id: "PQ-" + Date.now(), pregunta: p.pregunta, image: p.image || '',
+                opciones: p.opciones, correcta: p.correcta, puntos: 10
+            });
+            guardarDatos();
+            renderTabInstructor(claseId, "preguntas");
+        };
+    });
 
     document.getElementById("btnAgregarPQ").onclick = function() {
         var enunciado = document.getElementById("pqEnunciado").value.trim();
@@ -423,9 +480,10 @@ function renderTabMontaje(clase, cont, claseId) {
                     '<option value="texto">Texto</option>' +
                     '<option value="imagen">Imagen (URL)</option>' +
                 '</select>' +
-                '<input type="text" id="mtPiezaContenido" placeholder="// Texto o URL" class="input-dajox" style="flex:1;">' +
+                '<input type="text" id="mtPiezaContenido" placeholder="// Texto de la pieza" class="input-dajox" style="flex:1;">' +
                 '<button id="btnAddPieza" class="btn-primary" style="background:var(--neon-purple);flex-shrink:0;font-size:0.8rem;">+ PIEZA</button>' +
             '</div>' +
+            '<div id="mtPiezaImgPrev" style="margin-bottom:4px;"></div>' +
             '<div id="mtPiezasListIns" style="margin-bottom:12px;"></div>' +
             '<p style="font-size:0.82rem;color:var(--neon-cyan);margin-bottom:6px;letter-spacing:0.06em;">2. CLICK EN EL CANVAS PARA COLOCAR PUNTOS:</p>' +
             '<p style="font-size:0.78rem;color:var(--neon-purple);margin-bottom:8px;">Los aprendices veran los slots sin numeracion.</p>' +
@@ -454,9 +512,13 @@ function renderTabMontaje(clase, cont, claseId) {
     var canvas = document.getElementById("mtCanvasIns");
     var ctx = canvas.getContext("2d");
 
+    /* Importante: esperar al paint para leer offsetWidth correctamente */
     function resizeCanvas() {
         var wrap = document.getElementById("mtCanvasWrap");
-        if (!wrap) return;
+        if (!wrap || wrap.offsetWidth === 0) {
+            setTimeout(resizeCanvas, 50);
+            return;
+        }
         canvas.width = wrap.offsetWidth;
         canvas.height = wrap.offsetHeight;
         drawCanvas();
@@ -464,11 +526,15 @@ function renderTabMontaje(clase, cont, claseId) {
     function drawCanvas() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         mtPuntosTemp.forEach(function(pt, i) {
+            /* Sombra neon */
+            ctx.shadowColor = "rgba(0,212,255,0.8)";
+            ctx.shadowBlur = 10;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, 16, 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(168,85,247,0.85)";
+            ctx.fillStyle = "rgba(168,85,247,0.9)";
             ctx.fill();
-            ctx.strokeStyle = "rgba(0,212,255,0.8)";
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = "#00d4ff";
             ctx.lineWidth = 2;
             ctx.stroke();
             ctx.fillStyle = "#fff";
@@ -478,27 +544,40 @@ function renderTabMontaje(clase, cont, claseId) {
             ctx.fillText(i + 1, pt.x, pt.y);
         });
     }
-    resizeCanvas();
+    setTimeout(resizeCanvas, 0);
 
+    /* Preview imagen de fondo */
     document.getElementById("mtFondo").oninput = function() {
         var url = this.value.trim();
         var img = document.getElementById("mtFondoImgIns");
-        if (url) { img.src = url; img.style.display = "block"; }
-        else img.style.display = "none";
+        if (url) {
+            img.referrerPolicy = "no-referrer";
+            img.src = url;
+            img.style.display = "block";
+            img.onerror = function() { this.style.display = "none"; };
+        } else {
+            img.style.display = "none";
+        }
     };
 
     function renderPiezasIns() {
         var el = document.getElementById("mtPiezasListIns");
         if (!el) return;
-        el.innerHTML = mtPiezasTemp.length === 0 ? '' :
-            '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-bottom:4px;">Piezas (' + mtPiezasTemp.length + '):</p>' +
-            mtPiezasTemp.map(function(p, i) {
-                return '<div style="background:var(--bg-main);padding:5px 10px;border-radius:4px;margin-bottom:3px;font-size:0.8rem;display:flex;align-items:center;gap:8px;">' +
-                    '<span style="color:var(--neon-purple);font-weight:700;">[P' + (i+1) + ']</span>' +
-                    (p.tipo === "imagen" ? '<img src="' + p.contenido + '" style="max-height:32px;border-radius:3px;" onerror="this.style.display=\'none\'"><span style="color:var(--texto-mutado);">Imagen</span>' : '<span>' + p.contenido + '</span>') +
-                    '<button onclick="window._rmMtPieza(' + i + ')" style="background:var(--neon-pink);color:#fff;border:none;border-radius:3px;padding:1px 7px;cursor:pointer;font-size:0.76rem;margin-left:auto;">✕</button>' +
-                '</div>';
-            }).join('');
+        if (mtPiezasTemp.length === 0) { el.innerHTML = ''; renderPuntosIns(); return; }
+        var html = '<p style="font-size:0.8rem;color:var(--neon-cyan);margin-bottom:6px;font-weight:700;">PIEZAS CREADAS (' + mtPiezasTemp.length + '):</p>';
+        mtPiezasTemp.forEach(function(p, i) {
+            html += '<div style="background:rgba(168,85,247,0.08);border:1px solid rgba(168,85,247,0.2);padding:8px 10px;border-radius:6px;margin-bottom:5px;display:flex;align-items:center;gap:10px;">';
+            html += '<span style="color:var(--neon-purple);font-weight:800;min-width:30px;">[' + (i+1) + ']</span>';
+            if (p.tipo === "imagen") {
+                html += '<img src="' + p.contenido + '" referrerpolicy="no-referrer" style="max-height:48px;max-width:80px;object-fit:contain;border-radius:4px;border:1px solid rgba(0,212,255,0.2);" onerror="this.outerHTML=\'<span style=\'color:var(--neon-pink);font-size:0.78rem;\'>URL invalida</span>\'">';
+                html += '<span style="color:var(--texto-mutado);font-size:0.78rem;flex:1;" title="' + p.contenido + '">Imagen: ' + p.contenido.substring(0,30) + '...</span>';
+            } else {
+                html += '<span style="flex:1;font-weight:600;">' + p.contenido + '</span>';
+            }
+            html += '<button onclick="window._rmMtPieza(' + i + ')" style="background:var(--neon-pink);color:#fff;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:0.76rem;flex-shrink:0;">✕</button>';
+            html += '</div>';
+        });
+        el.innerHTML = html;
         renderPuntosIns();
     }
 
@@ -530,12 +609,34 @@ function renderTabMontaje(clase, cont, claseId) {
     window._rmMtPieza = function(i) { mtPiezasTemp.splice(i, 1); renderPiezasIns(); drawCanvas(); };
     window._rmMtPunto = function(i) { mtPuntosTemp.splice(i, 1); drawCanvas(); renderPuntosIns(); };
 
+    /* Preview de imagen de pieza al tipear */
+    document.getElementById("mtPiezaContenido").oninput = function() {
+        var tipo = document.getElementById("mtPiezaTipo").value;
+        var url = this.value.trim();
+        var prev = document.getElementById("mtPiezaImgPrev");
+        if (!prev) return;
+        if (tipo === "imagen" && url) {
+            prev.innerHTML = '<img src="' + url + '" referrerpolicy="no-referrer" style="max-height:60px;max-width:120px;object-fit:contain;border-radius:4px;border:1px solid rgba(0,212,255,0.2);margin-top:4px;" onerror="this.parentElement.innerHTML=\'<p style=\'color:var(--neon-pink);font-size:0.78rem;\'>URL invalida</p>\'">';
+        } else {
+            prev.innerHTML = '';
+        }
+    };
+    document.getElementById("mtPiezaTipo").onchange = function() {
+        document.getElementById("mtPiezaContenido").value = '';
+        var prev = document.getElementById("mtPiezaImgPrev");
+        if (prev) prev.innerHTML = '';
+        var tipo = this.value;
+        document.getElementById("mtPiezaContenido").placeholder = tipo === "imagen" ? "// URL de la imagen" : "// Texto de la pieza";
+    };
+
     document.getElementById("btnAddPieza").onclick = function() {
         var tipo = document.getElementById("mtPiezaTipo").value;
         var contenido = document.getElementById("mtPiezaContenido").value.trim();
-        if (!contenido) return alert("Ingresa el contenido");
+        if (!contenido) return alert("Ingresa el contenido de la pieza");
         mtPiezasTemp.push({ tipo: tipo, contenido: contenido, id: "PZ-" + Date.now() + "-" + mtPiezasTemp.length });
         document.getElementById("mtPiezaContenido").value = "";
+        var prev = document.getElementById("mtPiezaImgPrev");
+        if (prev) prev.innerHTML = '';
         renderPiezasIns();
     };
 
@@ -932,89 +1033,180 @@ function iniciarMontajeAp(claseId, montajeId) {
     if (!montaje) return;
     var cont = document.getElementById("tabApCont");
     var piezasShuffled = montaje.piezas.slice().sort(function() { return Math.random() - 0.5; });
-    var placements = {};
+    var placements = {};  /* slotId -> piezaId */
     var canvasW = montaje.canvasW || 700;
     var canvasH = montaje.canvasH || 340;
+    var pctPad = ((canvasH / canvasW) * 100).toFixed(2);
 
+    /* ── Renderizar banco de piezas ── */
     var bancoPiezasHTML = piezasShuffled.map(function(p) {
-        return '<div id="pieza_ap_' + p.id + '" draggable="true" data-pieza-id="' + p.id + '" class="pieza-draggable">' +
-            (p.tipo === "imagen" ? '<img src="' + p.contenido + '" style="max-height:55px;max-width:90px;object-fit:contain;border-radius:4px;pointer-events:none;" onerror="this.parentElement.innerHTML=\'<span>IMG</span>\'">' : '<span>' + p.contenido + '</span>') +
-        '</div>';
+        var inner = p.tipo === "imagen"
+            ? '<img src="' + p.contenido + '" referrerpolicy="no-referrer" style="max-height:55px;max-width:90px;object-fit:contain;border-radius:4px;pointer-events:none;" onerror="this.parentElement.innerHTML=\'<span style=\'font-size:0.8rem;\'>IMG</span>\'">'
+            : '<span style="font-size:0.9rem;font-weight:700;pointer-events:none;">' + p.contenido + '</span>';
+        return '<div id="pieza_ap_' + p.id + '" draggable="true" data-pieza-id="' + p.id + '" class="pieza-draggable" style="cursor:grab;transition:opacity 0.2s,transform 0.15s;user-select:none;">' + inner + '</div>';
     }).join('');
 
+    /* ── Renderizar slots (sin números para el aprendiz) ── */
     var slotsHTML = montaje.puntos.map(function(pt) {
         var pctX = ((pt.x / canvasW) * 100).toFixed(2);
         var pctY = ((pt.y / canvasH) * 100).toFixed(2);
-        return '<div id="slot_ap_' + pt.id + '" data-slot-id="' + pt.id + '" data-pieza-correcta="' + pt.piezaId + '" ' +
-            'ondragover="event.preventDefault()" ondrop="window._apDrop(event,\'' + pt.id + '\',\'' + claseId + '\',\'' + montajeId + '\')" ' +
-            'style="position:absolute;left:' + pctX + '%;top:' + pctY + '%;transform:translate(-50%,-50%);width:64px;height:64px;border:2px dashed rgba(0,212,255,0.3);border-radius:8px;background:rgba(0,212,255,0.03);display:flex;align-items:center;justify-content:center;overflow:hidden;">' +
-            '<span style="color:rgba(0,212,255,0.25);font-size:1.2rem;">○</span>' +
+        return '<div id="slot_ap_' + pt.id + '"' +
+            ' data-slot-id="' + pt.id + '"' +
+            ' data-pieza-correcta="' + pt.piezaId + '"' +
+            ' style="position:absolute;left:' + pctX + '%;top:' + pctY + '%;transform:translate(-50%,-50%);' +
+                    'width:68px;height:68px;border:2px dashed rgba(0,212,255,0.35);border-radius:10px;' +
+                    'background:rgba(0,212,255,0.04);display:flex;align-items:center;justify-content:center;' +
+                    'overflow:hidden;transition:all 0.2s;">' +
+            '<span class="slot-hint" style="color:rgba(0,212,255,0.3);font-size:1.6rem;pointer-events:none;">○</span>' +
         '</div>';
     }).join('');
 
     cont.innerHTML =
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">' +
             '<h4>' + montaje.nombre.toUpperCase() + '</h4>' +
-            '<button class="btn-mini-rojo" id="btnVolverMt">VOLVER</button>' +
+            '<button class="btn-mini-rojo" id="btnVolverMt">← VOLVER</button>' +
         '</div>' +
-        '<p style="color:var(--texto-mutado);font-size:0.82rem;margin-bottom:12px;letter-spacing:0.04em;">Arrastra cada pieza a su zona correcta en el diagrama.</p>' +
-        '<div style="background:rgba(0,0,0,0.3);border:1px solid rgba(0,212,255,0.1);border-radius:8px;padding:12px;margin-bottom:12px;">' +
-            '<p style="font-size:0.78rem;color:var(--neon-cyan);margin-bottom:8px;letter-spacing:0.08em;">BANCO DE PIEZAS:</p>' +
-            '<div style="display:flex;gap:8px;flex-wrap:wrap;" id="bancoPiezasAp">' + bancoPiezasHTML + '</div>' +
+        '<p style="color:var(--texto-mutado);font-size:0.82rem;margin-bottom:12px;">Arrastra cada pieza al espacio que le corresponde en el diagrama.</p>' +
+        /* Banco */
+        '<div style="background:rgba(168,85,247,0.05);border:1px solid rgba(168,85,247,0.2);border-radius:10px;padding:14px;margin-bottom:14px;">' +
+            '<p style="font-size:0.76rem;color:var(--neon-purple);margin-bottom:10px;font-weight:700;letter-spacing:0.08em;">BANCO DE PIEZAS — arrastra al diagrama</p>' +
+            '<div style="display:flex;gap:10px;flex-wrap:wrap;" id="bancoPiezasAp">' + bancoPiezasHTML + '</div>' +
         '</div>' +
-        '<div style="position:relative;width:100%;max-width:' + canvasW + 'px;margin:0 auto;background:#020408;border:1px solid rgba(0,212,255,0.15);border-radius:10px;overflow:hidden;" id="canvasApMontaje">' +
-            '<div style="padding-top:' + ((canvasH/canvasW)*100).toFixed(2) + '%;"></div>' +
-            (montaje.fondo ? '<img src="' + montaje.fondo + '" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;opacity:0.5;" onerror="this.style.display=\'none\'">' : '') +
+        /* Canvas con aspect-ratio preservado */
+        '<div style="position:relative;width:100%;max-width:' + canvasW + 'px;margin:0 auto;' +
+             'background:#020408;border:1px solid rgba(0,212,255,0.2);border-radius:12px;overflow:hidden;" id="canvasApMontaje">' +
+            '<div style="padding-top:' + pctPad + '%;"></div>' +
+            (montaje.fondo ? '<img src="' + montaje.fondo + '" referrerpolicy="no-referrer" style="position:absolute;inset:0;width:100%;height:100%;object-fit:contain;pointer-events:none;opacity:0.55;" onerror="this.style.display=\'none\'">' : '') +
             slotsHTML +
         '</div>' +
-        '<button id="btnEnviarMontajeAp" class="btn-accion btn-accion-verde" style="width:100%;max-width:' + canvasW + 'px;margin:14px auto 0;display:block;">ENVIAR MONTAJE</button>';
+        /* Progreso */
+        '<div style="margin:12px auto;max-width:' + canvasW + 'px;display:flex;justify-content:space-between;align-items:center;">' +
+            '<p id="lblProgreso" style="font-size:0.82rem;color:var(--texto-mutado);">Piezas colocadas: <span id="cntColocadas">0</span>/' + montaje.puntos.length + '</p>' +
+        '</div>' +
+        '<button id="btnEnviarMontajeAp" class="btn-accion btn-accion-verde" style="width:100%;max-width:' + canvasW + 'px;margin:0 auto;display:block;">ENVIAR MONTAJE</button>';
 
     document.getElementById("btnVolverMt").onclick = function() { renderTabAprendiz(claseId, "montajes"); };
 
-    cont.querySelectorAll(".pieza-draggable").forEach(function(el) {
-        el.ondragstart = function(e) { e.dataTransfer.setData("text/plain", el.dataset.piezaId); };
-    });
+    /* ── Drag & Drop ── */
+    var dragPiezaId = null;
 
-    window._apDrop = function(e, slotId, cId, mId) {
-        e.preventDefault();
-        var piezaId = e.dataTransfer.getData("text/plain");
+    function actualizarProgreso() {
+        var n = Object.keys(placements).length;
+        var el = document.getElementById("cntColocadas");
+        if (el) el.textContent = n;
+    }
+
+    function colocarPieza(slotId, piezaId) {
         var slot = document.getElementById("slot_ap_" + slotId);
         var piezaEl = document.getElementById("pieza_ap_" + piezaId);
-        var mont = (appState.clases.find(function(c) { return c.id === cId; }).montajes || []).find(function(m) { return m.id === mId; });
+        var mont = (appState.clases.find(function(c) { return c.id === claseId; }).montajes || []).find(function(m) { return m.id === montajeId; });
         var pieza = mont && mont.piezas.find(function(p) { return p.id === piezaId; });
         if (!pieza || !slot) return;
-        if (placements[slotId]) {
+        /* Devolver pieza anterior al banco si había una */
+        if (placements[slotId] && placements[slotId] !== piezaId) {
             var prevEl = document.getElementById("pieza_ap_" + placements[slotId]);
-            if (prevEl) prevEl.style.opacity = "1";
+            if (prevEl) { prevEl.style.opacity = "1"; prevEl.style.transform = ""; }
         }
         placements[slotId] = piezaId;
-        piezaEl.style.opacity = "0.2";
-        slot.innerHTML = pieza.tipo === "imagen"
-            ? '<img src="' + pieza.contenido + '" style="max-height:58px;max-width:58px;object-fit:contain;border-radius:5px;">'
-            : '<span style="font-size:0.76rem;font-weight:700;text-align:center;color:var(--texto-principal);padding:2px;word-break:break-word;">' + pieza.contenido.substring(0,14) + '</span>';
+        piezaEl.style.opacity = "0.25";
+        piezaEl.style.transform = "scale(0.9)";
+        var hint = slot.querySelector(".slot-hint");
+        if (hint) hint.remove();
+        if (pieza.tipo === "imagen") {
+            slot.innerHTML = '<img src="' + pieza.contenido + '" referrerpolicy="no-referrer" style="max-height:62px;max-width:62px;object-fit:contain;border-radius:6px;" onerror="this.style.display=\'none\'">';
+        } else {
+            slot.innerHTML = '<span style="font-size:0.74rem;font-weight:700;text-align:center;color:var(--texto-principal);padding:3px;word-break:break-word;line-height:1.2;">' + pieza.contenido.substring(0, 16) + '</span>';
+        }
         slot.style.borderColor = "var(--neon-cyan)";
         slot.style.borderStyle = "solid";
-        slot.style.background = "rgba(0,212,255,0.08)";
-        slot.style.boxShadow = "var(--glow-cyan)";
-    };
+        slot.style.background = "rgba(0,212,255,0.1)";
+        slot.style.boxShadow = "0 0 12px rgba(0,212,255,0.3)";
+        actualizarProgreso();
+    }
+
+    /* Drag & Drop estándar */
+    cont.querySelectorAll(".pieza-draggable").forEach(function(el) {
+        el.ondragstart = function(e) {
+            dragPiezaId = el.dataset.piezaId;
+            e.dataTransfer.setData("text/plain", dragPiezaId);
+            el.style.opacity = "0.5";
+        };
+        el.ondragend = function() { el.style.opacity = placements && Object.values(placements).indexOf(el.dataset.piezaId) !== -1 ? "0.25" : "1"; };
+    });
+
+    montaje.puntos.forEach(function(pt) {
+        var slot = document.getElementById("slot_ap_" + pt.id);
+        if (!slot) return;
+        slot.ondragover = function(e) {
+            e.preventDefault();
+            slot.style.background = "rgba(0,212,255,0.15)";
+        };
+        slot.ondragleave = function() {
+            if (!placements[pt.id]) slot.style.background = "rgba(0,212,255,0.04)";
+        };
+        slot.ondrop = function(e) {
+            e.preventDefault();
+            var pid = e.dataTransfer.getData("text/plain");
+            if (pid) colocarPieza(pt.id, pid);
+        };
+        /* Click en slot con pieza ya colocada: devolver al banco */
+        slot.onclick = function() {
+            if (placements[pt.id]) {
+                var pEl = document.getElementById("pieza_ap_" + placements[pt.id]);
+                if (pEl) { pEl.style.opacity = "1"; pEl.style.transform = ""; }
+                delete placements[pt.id];
+                slot.innerHTML = '<span class="slot-hint" style="color:rgba(0,212,255,0.3);font-size:1.6rem;pointer-events:none;">○</span>';
+                slot.style.borderColor = "rgba(0,212,255,0.35)";
+                slot.style.borderStyle = "dashed";
+                slot.style.background = "rgba(0,212,255,0.04)";
+                slot.style.boxShadow = "";
+                actualizarProgreso();
+            }
+        };
+    });
 
     document.getElementById("btnEnviarMontajeAp").onclick = function() {
         var total = montaje.puntos.length;
         var correctas = montaje.puntos.filter(function(pt) { return placements[pt.id] === pt.piezaId; }).length;
         var nota = Math.round((correctas / total) * 100);
-        var clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
-        var ci = clases.findIndex(function(c) { return c.id === claseId; });
-        if (!clases[ci].answersLog) clases[ci].answersLog = [];
-        clases[ci].answersLog.push({
-            alumno: appState.user.email, tipo: "montaje",
-            idMeta: montajeId, enunciado: montaje.nombre,
-            nota: nota, esCorrecto: nota === 100,
-            correctas: correctas, total: total, timestamp: Date.now()
+
+        /* Mostrar resultado visual antes de guardar */
+        montaje.puntos.forEach(function(pt) {
+            var slot = document.getElementById("slot_ap_" + pt.id);
+            if (!slot) return;
+            var correcto = placements[pt.id] === pt.piezaId;
+            var noColocada = !placements[pt.id];
+            slot.style.borderColor = noColocada ? "rgba(255,215,0,0.6)" : (correcto ? "var(--neon-green)" : "var(--neon-pink)");
+            slot.style.background = noColocada ? "rgba(255,215,0,0.05)" : (correcto ? "rgba(0,255,136,0.12)" : "rgba(255,45,85,0.12)");
+            slot.style.boxShadow = correcto ? "var(--glow-green)" : (noColocada ? "" : "var(--glow-red)");
         });
-        localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
-        syncData();
-        alert("Montaje enviado.\nCorrectas: " + correctas + "/" + total + " | Nota: " + nota + "%");
-        renderTabAprendiz(claseId, "montajes");
+
+        var guardar = function() {
+            var clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
+            var ci = clases.findIndex(function(c) { return c.id === claseId; });
+            if (!clases[ci].answersLog) clases[ci].answersLog = [];
+            clases[ci].answersLog.push({
+                alumno: appState.user.email, tipo: "montaje",
+                idMeta: montajeId, enunciado: montaje.nombre,
+                nota: nota, esCorrecto: nota === 100,
+                correctas: correctas, total: total, timestamp: Date.now()
+            });
+            localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+            syncData();
+            renderTabAprendiz(claseId, "montajes");
+        };
+
+        /* Reemplazar botón por resultado + continuar */
+        var btnEl = document.getElementById("btnEnviarMontajeAp");
+        btnEl.disabled = true;
+        btnEl.textContent = "CALIFICADO: " + correctas + "/" + total + " (" + nota + "%)";
+        btnEl.style.background = nota >= 60 ? "var(--neon-green)" : "var(--neon-pink)";
+        btnEl.style.color = "#000";
+
+        var progEl = document.getElementById("lblProgreso");
+        if (progEl) progEl.innerHTML = '<strong style="color:' + (nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">' + (nota >= 60 ? "¡Aprobado!" : "Reprobado") + ' — ' + nota + '%</strong>';
+
+        setTimeout(guardar, 2000);
     };
 }
 
