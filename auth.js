@@ -1,63 +1,185 @@
 /* ==========================================================================
-   CÓDIGO PRINCIPAL DAJOX - MANEJADOR DE AUTENTICACIÓN CON VERIFICACIÓN GMAIL
+   DAJOX SYSTEM - AUTENTICACIÓN CON SELECTOR DE CUENTAS ESTILO GOOGLE
    ========================================================================== */
+
+const AVATAR_COLORS = ["#4285f4", "#34a853", "#ea4335", "#fbbc05", "#7c3aed", "#0891b2"];
+
+function avatarColor(email) {
+    return AVATAR_COLORS[email.charCodeAt(0) % AVATAR_COLORS.length];
+}
+
+function avatarInitial(email) {
+    return email.charAt(0).toUpperCase();
+}
+
+function getSavedAccounts() {
+    try { return JSON.parse(localStorage.getItem("dajox_accounts") || "[]"); } catch { return []; }
+}
+
+function addSavedAccount(email, role) {
+    const prev = getSavedAccounts().filter(a => a.email !== email);
+    localStorage.setItem("dajox_accounts", JSON.stringify([{ email, role }, ...prev].slice(0, 6)));
+}
+
+// ── Estado global del login ───────────────────────────────────────────────────
+let currentEmail = "";
+let tempUsuario = null;
+
+// ── Helpers de pantalla ───────────────────────────────────────────────────────
+function showPhase(phase) {
+    ["phasePicker", "phaseEmail", "phasePassword", "phaseGmail"].forEach(id => {
+        document.getElementById(id).classList.add("hidden");
+    });
+    document.getElementById(phase).classList.remove("hidden");
+}
+
+function makeAvatar(email, container) {
+    container.style.background = avatarColor(email);
+    container.textContent = avatarInitial(email);
+}
+
+// ── Render lista de cuentas guardadas ─────────────────────────────────────────
+function renderAccountList() {
+    const accounts = getSavedAccounts();
+    const lista = document.getElementById("listaAccounts");
+    lista.innerHTML = "";
+
+    accounts.forEach(acc => {
+        const item = document.createElement("div");
+        item.className = "account-item";
+
+        const badge = acc.role === "INSTRUCTOR"
+            ? `<span class="account-role role-instructor">INSTRUCTOR</span>`
+            : `<span class="account-role role-aprendiz">APRENDIZ</span>`;
+
+        item.innerHTML = `
+            <div class="avatar" style="background:${avatarColor(acc.email)};">${avatarInitial(acc.email)}</div>
+            <div>
+                <p class="account-name">${acc.email.split("@")[0]}</p>
+                <p class="account-email">${acc.email}</p>
+                ${badge}
+            </div>
+        `;
+
+        item.addEventListener("click", () => {
+            currentEmail = acc.email;
+            // Pre-seleccionar el rol guardado
+            const radios = document.querySelectorAll('input[name="rolPass"]');
+            radios.forEach(r => { r.checked = (r.value === acc.role); });
+            goToPassword();
+        });
+
+        lista.appendChild(item);
+    });
+}
+
+// ── Navegación entre fases ────────────────────────────────────────────────────
+function goToPicker() {
+    renderAccountList();
+    showPhase("phasePicker");
+}
+
+function goToEmail() {
+    document.getElementById("inputEmail").value = currentEmail || "";
+    const accounts = getSavedAccounts();
+    const btnVolver = document.getElementById("btnEmailVolver");
+    btnVolver.style.display = accounts.length > 0 ? "inline-block" : "none";
+    showPhase("phaseEmail");
+    setTimeout(() => document.getElementById("inputEmail").focus(), 100);
+}
+
+function goToPassword() {
+    const avatar = document.getElementById("passAvatar");
+    makeAvatar(currentEmail, avatar);
+    document.getElementById("chipEmailTxt").textContent = currentEmail;
+    document.getElementById("inputPass").value = "";
+    showPhase("phasePassword");
+    setTimeout(() => document.getElementById("inputPass").focus(), 100);
+}
+
+function goToGmail() {
+    const gmailAvatar = document.getElementById("gmailAvatar");
+    makeAvatar(currentEmail, gmailAvatar);
+    document.getElementById("gmailEmailLabel").textContent = currentEmail;
+    document.getElementById("lblGmailDestino").textContent = currentEmail;
+    showPhase("phaseGmail");
+}
+
+// ── Lógica de cada paso ───────────────────────────────────────────────────────
+function handleEmailNext() {
+    const email = document.getElementById("inputEmail").value.trim();
+    if (!email || !email.includes("@")) {
+        alert("Ingresa un correo electrónico válido.");
+        return;
+    }
+    currentEmail = email;
+    goToPassword();
+}
+
+function handlePasswordNext() {
+    const pass = document.getElementById("inputPass").value.trim();
+    if (!pass) {
+        alert("Ingresa tu contraseña.");
+        return;
+    }
+    const role = document.querySelector('input[name="rolPass"]:checked').value;
+    const token = "DJX-" + Math.random().toString(36).substr(2, 9).toUpperCase();
+    tempUsuario = { email: currentEmail, role, token };
+    addSavedAccount(currentEmail, role);
+    goToGmail();
+}
+
+function handleConfirm() {
+    if (!tempUsuario) return;
+    localStorage.setItem("usuarioActual", JSON.stringify(tempUsuario));
+    window.location.href = "dashboard.html";
+}
+
+// ── Inicialización ────────────────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
-    if(window.location.pathname.includes("login.html")) {
-        localStorage.removeItem("usuarioActual");
+    // Si ya hay sesión activa, redirigir directo
+    if (localStorage.getItem("usuarioActual")) {
+        window.location.href = "dashboard.html";
+        return;
     }
 
-    const btnIngresar = document.getElementById("btnIngresar");
-    const btnConfirmarGmail = document.getElementById("btnConfirmarGmail");
-    const btnCancelarGmail = document.getElementById("btnCancelarGmail");
-    
-    let sesionTemporal = null;
+    const accounts = getSavedAccounts();
 
-    if(btnIngresar) {
-        btnIngresar.addEventListener("click", () => {
-            const email = document.getElementById("txtEmail").value.trim();
-            const pass = document.getElementById("txtPass").value.trim();
-            const rol = document.querySelector('input[name="rbRol"]:checked').value;
-
-            if(!email || !pass) {
-                alert("Completa todos los campos obligatorios.");
-                return;
-            }
-
-            if(!email.includes("@")) {
-                alert("Ingresa un correo electrónico válido.");
-                return;
-            }
-
-            // Guardamos temporalmente los datos, pero NO entramos todavía
-            sesionTemporal = { 
-                email: email, 
-                role: rol, 
-                token: "DJX-" + Math.random().toString(36).substr(2, 9).toUpperCase() 
-            };
-
-            // Cambiar de vista dentro del login: Ocultar form, mostrar simulación Gmail
-            document.getElementById("lblGmailDestino").textContent = email;
-            document.getElementById("formLogin").classList.add("hidden");
-            document.getElementById("pantallaGmail").classList.remove("hidden");
-        });
+    // Mostrar pantalla inicial según si hay cuentas guardadas
+    if (accounts.length > 0) {
+        goToPicker();
+    } else {
+        goToEmail();
     }
 
-    if(btnConfirmarGmail) {
-        btnConfirmarGmail.addEventListener("click", () => {
-            if(sesionTemporal) {
-                // Al dar Aceptar desde la cuenta de Gmail, ahora sí se guarda oficialmente la sesión
-                localStorage.setItem("usuarioActual", JSON.stringify(sesionTemporal));
-                alert("¡Verificación Exitosa! Credenciales confirmadas desde Gmail.");
-                window.location.href = "dashboard.html";
-            }
-        });
-    }
+    // ── Picker ──
+    document.getElementById("btnOtraCuenta").addEventListener("click", () => {
+        currentEmail = "";
+        goToEmail();
+    });
 
-    if(btnCancelarGmail) {
-        btnCancelarGmail.addEventListener("click", () => {
-            sesionTemporal = null;
-            document.getElementById("pantallaGmail").classList.add("hidden");
-            document.getElementById("formLogin").classList.remove("hidden");
-        });
-    }
+    // ── Email phase ──
+    document.getElementById("btnEmailSig").addEventListener("click", handleEmailNext);
+    document.getElementById("inputEmail").addEventListener("keydown", e => {
+        if (e.key === "Enter") handleEmailNext();
+    });
+    document.getElementById("btnEmailVolver").addEventListener("click", () => {
+        goToPicker();
+    });
+
+    // ── Password phase ──
+    document.getElementById("btnPassSig").addEventListener("click", handlePasswordNext);
+    document.getElementById("inputPass").addEventListener("keydown", e => {
+        if (e.key === "Enter") handlePasswordNext();
+    });
+    document.getElementById("btnChipEmail").addEventListener("click", () => {
+        const accounts = getSavedAccounts();
+        if (accounts.length > 0) goToPicker(); else goToEmail();
+    });
+
+    // ── Gmail phase ──
+    document.getElementById("btnConfirmarGmail").addEventListener("click", handleConfirm);
+    document.getElementById("btnVolverGmail").addEventListener("click", () => {
+        goToPassword();
+    });
 });
