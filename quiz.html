@@ -7,7 +7,7 @@
 </head>
 <body>
     <header style="background:var(--bg-tarjetas); padding:15px 30px; display:flex; justify-content:space-between; align-items:center; border-bottom:2px solid var(--acento-morado);">
-        <h2>Examen Modular Activo</h2>
+        <h2 style="font-family:'Orbitron',sans-serif;font-size:0.9rem;letter-spacing:0.1em;color:var(--neon-cyan);text-shadow:0 0 10px rgba(0,212,255,0.5);">// EVALUACION MODULAR ACTIVA</h2>
         <div style="font-size:1.2rem; color:var(--acento-rojo); font-weight:bold;">Tiempo Restante: <span id="clock">10:00</span></div>
     </header>
 
@@ -67,15 +67,15 @@
                 pDiv.className = "card";
                 pDiv.style.marginBottom = "20px";
                 pDiv.innerHTML = `
-                    <p style="font-weight:600; font-size:1.05rem; margin-bottom:12px;">${idx + 1}. ¿${p.pregunta}</p>
-                    ${p.image ? `<img src="${p.image}" style="max-height:220px; max-width:100%; object-fit:contain; margin-bottom:12px; display:block; border-radius:6px; border:1px solid var(--borde);">` : ''}
+                    <p style="font-weight:600; font-size:1.05rem; margin-bottom:12px;">${idx + 1}. ${p.pregunta}</p>
+                    ${p.image ? `<img src="${p.image}" style="max-height:220px; max-width:100%; object-fit:contain; margin-bottom:12px; display:block; border-radius:6px; border:1px solid var(--borde);" onerror="this.style.display='none'">` : ''}
                     <div style="display:flex; flex-direction:column; gap:8px;">
                         ${p.opciones.map((op, oIdx) => {
                             const esImagenOp = op.startsWith("http") || op.startsWith("data:image");
                             return `
                                 <label style="background:var(--bg-inputs); border:1px solid var(--borde); padding:12px 14px; border-radius:6px; display:flex; align-items:center; gap:10px; cursor:pointer;">
                                     <input type="radio" name="p_${idx}" value="${oIdx}">
-                                    <span>${String.fromCharCode(65 + oIdx)}. ${esImagenOp ? `<img src="${op}" style="max-height:80px; border-radius:4px; display:inline-block; vertical-align:middle; margin-left:6px;">` : op}</span>
+                                    <span>${String.fromCharCode(65 + oIdx)}. ${esImagenOp ? `<img src="${op}" style="max-height:80px; border-radius:4px; display:inline-block; vertical-align:middle; margin-left:6px;" onerror="this.style.display='none'">` : op}</span>
                                 </label>
                             `;
                         }).join('')}
@@ -115,8 +115,7 @@
             }
 
             if(!validacion) {
-                alert("Atención: Debe rellenar todos los ítems antes de procesar el envío.");
-                window.location.reload();
+                alert("Atención: Debe responder todas las preguntas antes de enviar.");
                 return;
             }
 
