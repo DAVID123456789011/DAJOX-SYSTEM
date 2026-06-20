@@ -3,6 +3,95 @@
    ========================================================================== */
 let appState = { user: null, clases: [] };
 
+/* ==========================================================================
+   DAJOX FIREBASE — SINCRONIZACION EN TIEMPO REAL
+   --------------------------------------------------------------------------
+   CONFIGURACION (1 vez por instructor):
+   1. Ve a https://console.firebase.google.com
+   2. Crea un proyecto nuevo (ej: "dajox-sena")
+   3. Agrega una app Web → copia los datos del config
+   4. Activa "Realtime Database" → region → "Iniciar en modo de prueba"
+   5. Pega los valores abajo y guarda
+   ========================================================================== */
+var DAJOX_FB_CONFIG = {
+    apiKey:        "",
+    authDomain:    "",
+    databaseURL:   "",   /* <-- REQUERIDO: https://tu-proyecto-rtdb.firebaseio.com */
+    projectId:     "",
+    storageBucket: "",
+    messagingSenderId: "",
+    appId:         ""
+};
+
+var _fbDb = null;          /* referencia a firebase.database() */
+var _fbListener = null;    /* listener de tiempo real activo */
+var _fbEnabled = false;
+
+function initFirebase() {
+    if (!DAJOX_FB_CONFIG.databaseURL) return;
+    try {
+        if (!window.firebase) { console.warn("DAJOX: Firebase SDK no cargado."); return; }
+        if (!firebase.apps.length) firebase.initializeApp(DAJOX_FB_CONFIG);
+        _fbDb = firebase.database();
+        _fbEnabled = true;
+        console.log("DAJOX: Firebase conectado →", DAJOX_FB_CONFIG.databaseURL);
+    } catch(e) {
+        console.warn("DAJOX: Error al conectar Firebase:", e.message);
+    }
+}
+
+function fbSave(clases) {
+    if (!_fbEnabled || !_fbDb) return;
+    /* Convertir array a objeto indexado por id para Firebase */
+    var obj = {};
+    clases.forEach(function(c) { if (c.id) obj[c.id.replace(/[.#$/\[\]]/g, "_")] = c; });
+    _fbDb.ref("dajox_v3").set(obj).catch(function(e) {
+        console.warn("DAJOX: Error al guardar en Firebase:", e.message);
+    });
+}
+
+function setupRealtimeSync() {
+    if (!_fbEnabled || !_fbDb) return;
+    if (_fbListener) { _fbDb.ref("dajox_v3").off("value", _fbListener); }
+
+    _fbListener = _fbDb.ref("dajox_v3").on("value", function(snap) {
+        var data = snap.val();
+        if (!data) return;
+        var clases = Object.values(data);
+        /* Dedup por id */
+        var seen = {};
+        clases.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
+        clases = Object.values(seen);
+        /* Actualizar localStorage y estado */
+        localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+        appState.clases = clases;
+        /* Re-renderizar vista activa sin reinicializar */
+        if (appState.user) {
+            if (appState.user.role === "INSTRUCTOR") {
+                var listaEl = document.getElementById("listaClasesInstructor");
+                if (listaEl) renderInstructorClases();
+            } else {
+                var listaAp = document.getElementById("listaClasesAprendiz");
+                if (listaAp) renderAprendizClases();
+            }
+        }
+    }, function(err) {
+        console.warn("DAJOX: Firebase listener error:", err.message);
+    });
+
+    /* Carga inicial desde Firebase */
+    _fbDb.ref("dajox_v3").once("value", function(snap) {
+        var data = snap.val();
+        if (data) {
+            var clases = Object.values(data);
+            var seen = {};
+            clases.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
+            appState.clases = Object.values(seen);
+            localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
+        }
+    });
+}
+
 function syncData() {
     let raw = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
     const seen = {};
@@ -13,6 +102,7 @@ function syncData() {
 function guardarDatos() {
     localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
     syncData();
+    fbSave(appState.clases);
 }
 
 /* ── ARRANQUE ── */
@@ -26,7 +116,9 @@ window.onload = function() {
         localStorage.removeItem("usuarioActual");
         window.location.href = "login.html";
     };
+    initFirebase();
     syncData();
+    if (_fbEnabled) setupRealtimeSync();
     if (appState.user.role === "INSTRUCTOR") {
         document.getElementById("sectInstructor").classList.remove("hidden");
         initInstructor();
