@@ -67,14 +67,7 @@ document.addEventListener("DOMContentLoaded", () => {
                             timestamp: Date.now()
                         });
                         localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
-                        /* Firebase sync */
-                        try {
-                            if (window.firebase && firebase.apps && firebase.apps.length) {
-                                var fbObj = {};
-                                clases.forEach(function(c) { if (c.id) fbObj[c.id.replace(/[.#$\/\[\]]/g, "_")] = c; });
-                                firebase.database().ref("dajox_v3").set(fbObj);
-                            }
-                        } catch(e) {}
+                        if (typeof fbWrite === "function") fbWrite(clases);
                     }
                     window.location.href = "dashboard.html";
                 }
