@@ -14,8 +14,7 @@ function syncData() {
 function guardarDatos() {
     localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
     syncData();
-    /* Escribir en Firebase para que otros dispositivos se actualicen */
-    if (typeof fbWrite === "function") fbWrite(appState.clases);
+    mqttPublish(appState.clases);
 }
 
 /* ── ARRANQUE ── */
@@ -30,24 +29,27 @@ window.onload = function() {
         window.location.href = "login.html";
     };
     syncData();
-    /* Cargar datos frescos de Firebase al abrir la app */
-    if (typeof fbRead === "function" && _dbUrl && _dbUrl()) {
-        fbRead().then(function(data) {
-            if (data) {
-                fbMergeIntoLocal(data, function(clases) {
-                    appState.clases = clases;
-                });
+    /* Conectar MQTT para sincronizacion en tiempo real */
+    mqttConnect(
+        function onData(clases) {
+            appState.clases = clases;
+            if (appState.user) {
+                if (appState.user.role === "INSTRUCTOR") renderInstructorClases();
+                else renderAprendizClases();
             }
-            /* Iniciar escucha en tiempo real */
-            fbListen(function(clases) {
-                appState.clases = clases;
-                if (appState.user) {
-                    if (appState.user.role === "INSTRUCTOR") renderInstructorClases();
-                    else renderAprendizClases();
-                }
-            });
-        });
-    }
+        },
+        function onStatus(status) {
+            _mqttStatus = status;
+            /* Actualizar indicador visual si ya existe */
+            var dot = document.getElementById("mqttStatusDot");
+            var lbl = document.getElementById("mqttStatusLbl");
+            if (!dot || !lbl) return;
+            var cfg = mqttStatusCfg(status);
+            dot.style.background = cfg.color;
+            dot.style.boxShadow  = "0 0 6px " + cfg.color;
+            lbl.textContent = cfg.text;
+        }
+    );
     if (appState.user.role === "INSTRUCTOR") {
         document.getElementById("sectInstructor").classList.remove("hidden");
         initInstructor();
@@ -61,152 +63,35 @@ window.onload = function() {
    SYNC — CONFIGURACION Y ESTADO
    ========================================================================== */
 
+function mqttStatusCfg(status) {
+    if (status === "online")       return { color: "var(--neon-green)",  text: "EN TIEMPO REAL", border: "rgba(0,255,136,0.3)",  bg: "rgba(0,255,136,0.05)" };
+    if (status === "connecting")   return { color: "var(--acento-amarillo)", text: "CONECTANDO...",  border: "rgba(255,215,0,0.35)", bg: "rgba(255,215,0,0.04)" };
+    return                                { color: "var(--neon-pink)",   text: "SIN CONEXION",  border: "rgba(255,45,85,0.3)",  bg: "rgba(255,45,85,0.04)" };
+}
+
 function renderSyncBanner() {
     var existing = document.getElementById("dajoxSyncBanner");
     if (existing) existing.remove();
 
-    var dbUrl = localStorage.getItem("dajox_firebase_url") || "";
-    var connected = !!dbUrl;
+    var status = _mqttStatus || "offline";
+    var cfg    = mqttStatusCfg(status);
 
     var banner = document.createElement("div");
     banner.id = "dajoxSyncBanner";
-    banner.style.cssText = [
-        "display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;",
-        "padding:10px 16px;border-radius:10px;margin-bottom:16px;font-size:0.82rem;",
-        "border:1px solid " + (connected ? "rgba(0,255,136,0.3)" : "rgba(255,45,85,0.35)") + ";",
-        "background:" + (connected ? "rgba(0,255,136,0.05)" : "rgba(255,45,85,0.05)") + ";"
-    ].join("");
-
-    var statusDot = '<span style="width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:8px;background:' + (connected ? "var(--neon-green)" : "var(--neon-pink)") + ';box-shadow:0 0 6px ' + (connected ? "var(--neon-green)" : "var(--neon-pink)") + ';"></span>';
-
-    var statusText = connected
-        ? statusDot + '<span style="color:var(--neon-green);font-weight:700;">SINCRONIZACION ACTIVA</span> <span style="color:var(--texto-mutado);font-size:0.76rem;margin-left:6px;">' + dbUrl.replace("https://","").substring(0,40) + "...</span>"
-        : statusDot + '<span style="color:var(--neon-pink);font-weight:700;">SIN SINCRONIZACION</span> <span style="color:var(--texto-mutado);font-size:0.76rem;margin-left:6px;">Solo este computador puede ver los datos</span>';
+    banner.style.cssText =
+        "display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;" +
+        "padding:10px 16px;border-radius:10px;margin-bottom:16px;font-size:0.82rem;" +
+        "border:1px solid " + cfg.border + ";background:" + cfg.bg + ";";
 
     banner.innerHTML =
-        '<div>' + statusText + '</div>' +
-        '<button id="btnAbrirConfigSync" style="background:' + (connected ? "rgba(0,255,136,0.1)" : "rgba(255,45,85,0.12)") + ';color:' + (connected ? "var(--neon-green)" : "var(--neon-pink)") + ';border:1px solid ' + (connected ? "rgba(0,255,136,0.3)" : "rgba(255,45,85,0.3)") + ';border-radius:6px;padding:5px 14px;cursor:pointer;font-size:0.8rem;font-family:Rajdhani,sans-serif;font-weight:700;">⚙ CONFIGURAR SINCRONIZACION</button>';
-
-    /* Insertar antes de la lista de clases */
-    var mainEl = document.querySelector("main") || document.body;
-    var sectEl = document.getElementById("sectInstructor") || document.getElementById("sectMainAprendiz");
-    if (sectEl && sectEl.firstChild) {
-        sectEl.insertBefore(banner, sectEl.firstChild);
-    } else {
-        mainEl.insertBefore(banner, mainEl.firstChild);
-    }
-
-    document.getElementById("btnAbrirConfigSync").onclick = abrirConfigSync;
-}
-
-function abrirConfigSync() {
-    var overlay = document.createElement("div");
-    overlay.id = "overlayConfigSync";
-    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.88);backdrop-filter:blur(6px);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;";
-
-    var currentUrl = localStorage.getItem("dajox_firebase_url") || "";
-
-    overlay.innerHTML =
-        '<div style="background:linear-gradient(160deg,#070d14,#0a1525);border:1px solid rgba(0,212,255,0.25);border-radius:16px;padding:32px;width:100%;max-width:560px;position:relative;">' +
-            '<div style="position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--neon-purple),var(--neon-cyan),var(--neon-green));border-radius:16px 16px 0 0;"></div>' +
-            '<button id="btnCerrarSync" style="position:absolute;top:14px;right:14px;background:rgba(255,45,85,0.12);border:1px solid rgba(255,45,85,0.3);color:var(--neon-pink);width:30px;height:30px;border-radius:50%;cursor:pointer;font-size:0.9rem;display:flex;align-items:center;justify-content:center;">✕</button>' +
-
-            '<h3 style="margin-bottom:6px;font-size:1rem;">CONFIGURAR SINCRONIZACION EN TIEMPO REAL</h3>' +
-            '<p style="color:var(--texto-mutado);font-size:0.82rem;margin-bottom:20px;">Permite que hasta 30 computadores compartan la misma clase simultaneamente.</p>' +
-
-            /* Pasos */
-            '<div style="background:rgba(0,212,255,0.03);border:1px solid rgba(0,212,255,0.1);border-radius:10px;padding:16px;margin-bottom:20px;">' +
-                '<p style="color:var(--neon-cyan);font-weight:700;font-size:0.82rem;margin-bottom:10px;">COMO OBTENER EL URL (gratis, 5 minutos):</p>' +
-                '<ol style="padding-left:18px;color:var(--texto-principal);font-size:0.82rem;line-height:2;">' +
-                    '<li>Ir a <a href="https://console.firebase.google.com" target="_blank" style="color:var(--neon-cyan);">console.firebase.google.com</a></li>' +
-                    '<li>Crear proyecto → nombre cualquiera → Continuar</li>' +
-                    '<li>Menu izquierdo → <strong>Build → Realtime Database</strong></li>' +
-                    '<li>Click "Crear base de datos" → Elegir region → <strong>"Iniciar en modo de prueba"</strong></li>' +
-                    '<li>Copiar el URL que aparece (formato: <code style="color:var(--neon-green);background:rgba(0,0,0,0.3);padding:1px 5px;border-radius:3px;">https://XXXX-rtdb.firebaseio.com</code>)</li>' +
-                '</ol>' +
-            '</div>' +
-
-            '<label style="font-size:0.82rem;color:var(--texto-mutado);display:block;margin-bottom:6px;letter-spacing:0.06em;">URL DE FIREBASE REALTIME DATABASE:</label>' +
-            '<input id="inputFirebaseUrl" type="text" class="input-dajox" placeholder="https://tu-proyecto-default-rtdb.firebaseio.com" value="' + currentUrl + '" style="width:100%;margin-bottom:6px;font-size:0.85rem;">' +
-            '<p id="urlValidMsg" style="font-size:0.78rem;margin-bottom:16px;min-height:16px;color:var(--texto-mutado);"></p>' +
-
-            '<div style="display:flex;gap:10px;">' +
-                '<button id="btnGuardarSync" class="btn-primary" style="flex:1;background:var(--neon-green);color:#000;font-weight:800;">GUARDAR Y CONECTAR</button>' +
-                (currentUrl ? '<button id="btnDesconectarSync" style="background:rgba(255,45,85,0.12);color:var(--neon-pink);border:1px solid rgba(255,45,85,0.3);border-radius:6px;padding:10px 18px;cursor:pointer;font-family:Rajdhani,sans-serif;font-weight:700;font-size:0.85rem;">DESCONECTAR</button>' : '') +
-            '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;">' +
+            '<span id="mqttStatusDot" style="width:9px;height:9px;border-radius:50%;display:inline-block;background:' + cfg.color + ';box-shadow:0 0 6px ' + cfg.color + ';flex-shrink:0;"></span>' +
+            '<span id="mqttStatusLbl" style="color:' + cfg.color + ';font-weight:700;">' + cfg.text + '</span>' +
+            '<span style="color:var(--texto-mutado);font-size:0.76rem;">— Salon: <code style="color:var(--neon-cyan);">' + (typeof getDajoxSalonId === "function" ? getDajoxSalonId() : "—") + '</code></span>' +
         '</div>';
 
-    document.body.appendChild(overlay);
-
-    var input = document.getElementById("inputFirebaseUrl");
-    var msg = document.getElementById("urlValidMsg");
-
-    input.oninput = function() {
-        var val = this.value.trim();
-        if (!val) { msg.textContent = ""; msg.style.color = "var(--texto-mutado)"; return; }
-        if (val.includes("firebaseio.com") || val.includes("firebasedatabase.app")) {
-            msg.textContent = "✓ Formato valido";
-            msg.style.color = "var(--neon-green)";
-        } else {
-            msg.textContent = "⚠ El URL debe contener firebaseio.com o firebasedatabase.app";
-            msg.style.color = "var(--neon-pink)";
-        }
-    };
-
-    document.getElementById("btnCerrarSync").onclick = function() { document.body.removeChild(overlay); };
-
-    document.getElementById("btnGuardarSync").onclick = function() {
-        var val = input.value.trim().replace(/\/+$/, "");
-        if (!val) { alert("Ingresa el URL de Firebase."); return; }
-        if (!val.startsWith("https://")) { alert("El URL debe comenzar con https://"); return; }
-
-        /* Probar conexion antes de guardar */
-        msg.textContent = "Probando conexion...";
-        msg.style.color = "var(--neon-cyan)";
-
-        fetch(val + "/dajox_ping.json", { method: "PUT", body: JSON.stringify({ ts: Date.now() }) })
-            .then(function(r) {
-                if (r.ok || r.status === 204) {
-                    localStorage.setItem("dajox_firebase_url", val);
-                    /* Reiniciar con la nueva URL */
-                    DAJOX_DB_URL = val;
-                    document.body.removeChild(overlay);
-                    /* Iniciar sync */
-                    fbRead().then(function(data) {
-                        if (data) fbMergeIntoLocal(data, function(clases) { appState.clases = clases; });
-                        fbListen(function(clases) {
-                            appState.clases = clases;
-                            if (appState.user.role === "INSTRUCTOR") renderInstructorClases();
-                            else renderAprendizClases();
-                        });
-                    });
-                    if (appState.user.role === "INSTRUCTOR") renderInstructorClases();
-                    else renderAprendizClases();
-                    alert("Conexion exitosa! Esta clase ahora es visible para todos los computadores que usen el mismo URL.");
-                } else {
-                    msg.textContent = "Error: " + r.status + " — Verifica que el URL sea correcto y que la base de datos este en modo prueba.";
-                    msg.style.color = "var(--neon-pink)";
-                }
-            })
-            .catch(function(e) {
-                msg.textContent = "No se pudo conectar: " + e.message;
-                msg.style.color = "var(--neon-pink)";
-            });
-    };
-
-    var btnDesconectar = document.getElementById("btnDesconectarSync");
-    if (btnDesconectar) {
-        btnDesconectar.onclick = function() {
-            if (!confirm("Desconectar la sincronizacion? Los datos locales se mantienen.")) return;
-            localStorage.removeItem("dajox_firebase_url");
-            DAJOX_DB_URL = "";
-            if (_evtSrc) { _evtSrc.close(); _evtSrc = null; }
-            if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
-            document.body.removeChild(overlay);
-            if (appState.user.role === "INSTRUCTOR") renderInstructorClases();
-            else renderAprendizClases();
-        };
-    }
+    var sectEl = document.getElementById("sectInstructor") || document.getElementById("sectMainAprendiz");
+    if (sectEl && sectEl.firstChild) sectEl.insertBefore(banner, sectEl.firstChild);
 }
 
 /* ==========================================================================
