@@ -1,102 +1,115 @@
 /* ==========================================================================
-   DAJOX SYNC — BASE DE DATOS COMPARTIDA EN TIEMPO REAL
-   ==========================================================================
-   INSTRUCCIONES (5 minutos, gratis):
-   1. Ve a https://console.firebase.google.com
-   2. "Crear proyecto" → nombre cualquiera → Continuar → Crear
-   3. Panel izquierdo → Build → Realtime Database → "Crear base de datos"
-   4. Elige region → "Iniciar en modo de prueba" → Habilitar
-   5. Copia la URL que aparece (formato: https://XXXX-rtdb.firebaseio.com)
-   6. Pega esa URL SOLO aqui abajo entre las comillas y guarda el archivo
+   DAJOX SYNC — TIEMPO REAL SIN CONFIGURACION
+   Usa MQTT (broker publico gratuito). Cero cuentas, cero pagos, cero pasos.
+   El ID del salon se detecta automaticamente desde el URL del sitio.
    ========================================================================== */
-/* La URL se guarda en localStorage para no tener que editar codigo.
-   El instructor la configura UNA VEZ desde el panel de configuracion del app. */
-var DAJOX_DB_URL = localStorage.getItem("dajox_firebase_url") || "";
 
-/* ── Motor de sincronizacion (no modificar) ── */
-var _dbUrl = function() {
-    /* Siempre leer de localStorage para capturar cambios en caliente */
-    var u = localStorage.getItem("dajox_firebase_url") || "";
-    if (!u && typeof DAJOX_DB_URL !== "undefined") u = DAJOX_DB_URL;
-    return u ? u.trim().replace(/\/$/, "") : "";
-};
-
-var _fbActive = false;
-
-function fbWrite(clases) {
-    var base = _dbUrl();
-    if (!base || !clases) return;
-    var obj = {};
-    clases.forEach(function(c) {
-        if (c && c.id) obj[c.id.replace(/[.#$[\]]/g, "_")] = c;
-    });
-    fetch(base + "/dajox_v3.json", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(obj)
-    }).catch(function(e) { console.warn("DAJOX sync write error:", e.message); });
-}
-
-function fbRead() {
-    var base = _dbUrl();
-    if (!base) return Promise.resolve(null);
-    return fetch(base + "/dajox_v3.json")
-        .then(function(r) { return r.ok ? r.json() : null; })
-        .catch(function() { return null; });
-}
-
-function fbMergeIntoLocal(data, callback) {
-    if (!data || typeof data !== "object") return;
-    var clases = Object.values(data).filter(Boolean);
-    var seen = {};
-    clases.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
-    var arr = Object.values(seen);
-    if (!arr.length) return;
-    localStorage.setItem("dajox_clases_v3", JSON.stringify(arr));
-    if (callback) callback(arr);
-}
-
-/* EventSource para actualizaciones en tiempo real (Firebase SSE) */
-var _evtSrc = null;
-function fbListen(onUpdate) {
-    var base = _dbUrl();
-    if (!base) return;
-    if (_evtSrc) { _evtSrc.close(); _evtSrc = null; }
-    try {
-        _evtSrc = new EventSource(base + "/dajox_v3.json");
-        _evtSrc.addEventListener("put", function(e) {
-            try {
-                var payload = JSON.parse(e.data);
-                var data = payload.data;
-                if (!data) return;
-                fbMergeIntoLocal(data, onUpdate);
-            } catch(ex) {}
-        });
-        _evtSrc.onerror = function() {
-            /* Si SSE falla, caer en polling cada 5 segundos */
-            if (_evtSrc) { _evtSrc.close(); _evtSrc = null; }
-            _fbPollFallback(onUpdate);
-        };
-        _fbActive = true;
-    } catch(e) {
-        _fbPollFallback(onUpdate);
+/* ── ID del salon (auto-detectado del hostname) ── */
+function getDajoxSalonId() {
+    var host = window.location.hostname || "localhost";
+    if (host === "localhost" || host === "127.0.0.1") {
+        /* En local, usar un ID guardado o generarlo */
+        var sid = localStorage.getItem("dajox_sid");
+        if (!sid) {
+            sid = "local-" + Math.random().toString(36).substr(2, 6);
+            localStorage.setItem("dajox_sid", sid);
+        }
+        return sid;
     }
+    /* Para GitHub Pages: "david123456789011.github.io" → "david123456789011" */
+    return host.split(".")[0];
 }
 
-var _pollTimer = null;
-function _fbPollFallback(onUpdate) {
-    if (_pollTimer) return;
-    _pollTimer = setInterval(function() {
-        fbRead().then(function(data) {
-            if (data) fbMergeIntoLocal(data, onUpdate);
+var DAJOX_TOPIC  = "dajox-v3/" + getDajoxSalonId();
+var MQTT_BROKER  = "wss://broker.emqx.io:8084/mqtt";
+
+var _mqtt        = null;
+var _mqttOk      = false;
+var _mqttStatus  = "offline";   /* "offline" | "connecting" | "online" | "error" */
+var _onMqttData  = null;
+var _onMqttStatus = null;
+
+/* ── Conectar al broker MQTT ── */
+function mqttConnect(onData, onStatus) {
+    if (typeof window.mqtt === "undefined") {
+        /* La libreria aun no cargo, reintentar en 500ms */
+        setTimeout(function() { mqttConnect(onData, onStatus); }, 500);
+        return;
+    }
+    _onMqttData   = onData;
+    _onMqttStatus = onStatus;
+
+    if (_mqtt) { _mqtt.end(true); _mqtt = null; }
+
+    _mqttStatus = "connecting";
+    if (onStatus) onStatus("connecting");
+
+    var clientId = "djx-" + Math.random().toString(36).substr(2, 9);
+
+    _mqtt = window.mqtt.connect(MQTT_BROKER, {
+        clientId:       clientId,
+        clean:          true,
+        connectTimeout: 10000,
+        reconnectPeriod: 4000,
+        keepalive:      30,
+    });
+
+    _mqtt.on("connect", function () {
+        _mqttOk     = true;
+        _mqttStatus = "online";
+        if (_onMqttStatus) _onMqttStatus("online");
+
+        _mqtt.subscribe(DAJOX_TOPIC, { qos: 1 }, function (err) {
+            if (err) console.warn("DAJOX MQTT sub error:", err);
         });
-    }, 5000);
-    _fbActive = true;
+    });
+
+    _mqtt.on("message", function (topic, payload) {
+        try {
+            var data = JSON.parse(payload.toString());
+            if (Array.isArray(data) && data.length > 0) {
+                var seen = {};
+                data.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
+                var clases = Object.values(seen);
+                localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+                if (_onMqttData) _onMqttData(clases);
+            }
+        } catch (e) {}
+    });
+
+    _mqtt.on("error", function (err) {
+        _mqttOk     = false;
+        _mqttStatus = "error";
+        if (_onMqttStatus) _onMqttStatus("error");
+    });
+
+    _mqtt.on("offline", function () {
+        _mqttOk     = false;
+        _mqttStatus = "offline";
+        if (_onMqttStatus) _onMqttStatus("offline");
+    });
+
+    _mqtt.on("reconnect", function () {
+        _mqttStatus = "connecting";
+        if (_onMqttStatus) _onMqttStatus("connecting");
+    });
 }
 
-/* ==========================================================================
-   CÓDIGO PRINCIPAL DAJOX - BANCO DE 30 PREGUNTAS PREDETERMINADAS BASE
-   ========================================================================== */
+/* ── Publicar datos (con retain=true → nuevos dispositivos reciben el estado actual) ── */
+function mqttPublish(clases) {
+    if (!_mqtt || !_mqttOk) return;
+    _mqtt.publish(DAJOX_TOPIC, JSON.stringify(clases), { qos: 1, retain: true });
+}
+
+/* ── Alias para compatibilidad con el resto del codigo ── */
+function fbWrite(clases)          { mqttPublish(clases); }
+function fbRead()                 { return Promise.resolve(null); }
+function fbListen(cb)             { /* MQTT ya escucha en mqttConnect */ }
+function fbMergeIntoLocal()       { /* no aplica */ }
+
+/* Expose al scope global para quiz.html y simuladorGrafico.js */
+window.dajoxMqttPublish = mqttPublish;
+
 const bancoPredeterminado30 = [
     { id: 101, pregunta: "¿Cuál es el componente principal encargado de ejecutar las instrucciones de cómputo?", opciones: ["Memoria RAM", "Procesador (CPU)", "Disco Duro", "Fuente de Poder"], correcta: 1, image: "" },
     { id: 102, pregunta: "Si una computadora enciende pero emite pitidos repetidos y no da video, ¿qué componente probablemente falla?", opciones: ["Teclado", "Gabinete", "Memoria RAM", "Unidad Óptica"], correcta: 2, image: "" },
