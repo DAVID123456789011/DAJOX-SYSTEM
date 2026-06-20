@@ -62,19 +62,48 @@ function mqttConnect(onData, onStatus) {
         _mqtt.subscribe(DAJOX_TOPIC, { qos: 1 }, function (err) {
             if (err) console.warn("DAJOX MQTT sub error:", err);
         });
+        /* Suscribirse a topics individuales de clases conocidas */
+        var salon = getDajoxSalonId();
+        var reg = JSON.parse(localStorage.getItem("dajox_registry_v1") || "[]");
+        reg.forEach(function(id) {
+            _mqtt.subscribe("dajox-v3/" + salon + "/" + id, { qos: 1 });
+        });
+        /* Suscribirse al registry */
+        _mqtt.subscribe("dajox-v3/" + salon + "/_registry", { qos: 1 });
     });
 
     _mqtt.on("message", function (topic, payload) {
         try {
-            var data = JSON.parse(payload.toString());
-            if (Array.isArray(data) && data.length > 0) {
-                var seen = {};
-                data.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
-                var clases = Object.values(seen);
-                localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
-                if (_onMqttData) _onMqttData(clases);
+            var raw = payload.toString();
+            if (!raw) return;
+            var data = JSON.parse(raw);
+
+            /* Mensaje de clase individual (topic = dajox-v3/salon/CLASE-XXXX) */
+            if (data && data.id && !Array.isArray(data)) {
+                if (typeof DajoxDB !== "undefined") {
+                    var merged = DajoxDB.importFromMQTT(data);
+                    if (merged && _onMqttData) {
+                        _onMqttData(DajoxDB.toArray());
+                    }
+                }
+                return;
             }
-        } catch (e) {}
+
+            /* Mensaje legacy: array de todas las clases */
+            if (Array.isArray(data) && data.length > 0) {
+                if (typeof DajoxDB !== "undefined") {
+                    DajoxDB.replaceAll(data);
+                    if (_onMqttData) _onMqttData(DajoxDB.toArray());
+                } else {
+                    /* Fallback sin DajoxDB */
+                    var seen = {};
+                    data.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
+                    var clases = Object.values(seen);
+                    localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+                    if (_onMqttData) _onMqttData(clases);
+                }
+            }
+        } catch (e) { console.warn("DAJOX MQTT parse error:", e); }
     });
 
     _mqtt.on("error", function (err) {
@@ -95,10 +124,25 @@ function mqttConnect(onData, onStatus) {
     });
 }
 
-/* ── Publicar datos (con retain=true → nuevos dispositivos reciben el estado actual) ── */
+/* ── Publicar una clase individual por su propio topic ── */
+function mqttPublishClass(cls) {
+    if (!_mqtt || !_mqttOk || !cls || !cls.id) return;
+    var salon = getDajoxSalonId();
+    var topic = "dajox-v3/" + salon + "/" + cls.id;
+    _mqtt.publish(topic, JSON.stringify(cls), { qos: 1, retain: true });
+    /* Suscribirse a ese topic si no estaba ya */
+    _mqtt.subscribe(topic, { qos: 1 });
+}
+
+/* ── Publicar array completo (compatibilidad legacy) ── */
 function mqttPublish(clases) {
     if (!_mqtt || !_mqttOk) return;
-    _mqtt.publish(DAJOX_TOPIC, JSON.stringify(clases), { qos: 1, retain: true });
+    /* Publicar cada clase por su propio topic */
+    if (typeof DajoxDB !== "undefined") {
+        clases.forEach(function(cls) { if (cls && cls.id) mqttPublishClass(cls); });
+    } else {
+        _mqtt.publish(DAJOX_TOPIC, JSON.stringify(clases), { qos: 1, retain: true });
+    }
 }
 
 /* ── Alias para compatibilidad con el resto del codigo ── */
