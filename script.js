@@ -4,15 +4,16 @@
 let appState = { user: null, clases: [] };
 
 function syncData() {
-    var raw = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
-    var seen = {};
-    raw.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
-    appState.clases = Object.values(seen);
-    /* Dedup back to localStorage */
-    localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
+    appState.clases = (typeof DajoxDB !== "undefined") ? DajoxDB.toArray()
+        : (function(){ var r=JSON.parse(localStorage.getItem("dajox_clases_v3")||"[]"),s={};
+           r.forEach(function(c){if(c&&c.id)s[c.id]=c;}); return Object.values(s); })();
 }
 function guardarDatos() {
-    localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
+    if (typeof DajoxDB !== "undefined") {
+        appState.clases.forEach(function(cls) { DajoxDB.updateClass(cls); });
+    } else {
+        localStorage.setItem("dajox_clases_v3", JSON.stringify(appState.clases));
+    }
     syncData();
     mqttPublish(appState.clases);
 }
@@ -28,6 +29,7 @@ window.onload = function() {
         localStorage.removeItem("usuarioActual");
         window.location.href = "login.html";
     };
+    if (typeof DajoxDB !== "undefined") DajoxDB.migrateFromLegacy();
     syncData();
     /* Conectar MQTT para sincronizacion en tiempo real */
     mqttConnect(
@@ -102,17 +104,15 @@ function initInstructor() {
         var nom = document.getElementById("insNombre").value.trim();
         var fic = document.getElementById("insFicha").value.trim();
         if (!nom || !fic) return alert("Completa nombre y ficha");
-        appState.clases.push({
-            id: "CLASE-" + Math.floor(Math.random() * 9000 + 1000),
-            nombre: nom, ficha: fic,
-            instructor: appState.user.email,
-            answersLog: [],
-            examenesCreadosEstructurados: [],
-            preguntasIndividuales: [],
-            montajes: [],
-            inscritos: []
-        });
-        guardarDatos();
+        if (typeof DajoxDB !== "undefined") {
+            DajoxDB.createClass(nom, fic, appState.user.email);
+            syncData(); mqttPublish(appState.clases);
+        } else {
+            appState.clases.push({ id: "CLASE-"+Math.floor(Math.random()*9000+1000),
+                nombre:nom, ficha:fic, instructor:appState.user.email,
+                answersLog:[], examenesCreadosEstructurados:[], preguntasIndividuales:[], montajes:[], inscritos:[] });
+            guardarDatos();
+        }
         document.getElementById("insNombre").value = "";
         document.getElementById("insFicha").value = "";
         renderInstructorClases();
@@ -165,9 +165,10 @@ function renderInstructorClases() {
 }
 
 function eliminarClase(claseId) {
-    if (!confirm("Eliminar esta clase? No se puede deshacer.")) return;
-    appState.clases = appState.clases.filter(function(c) { return c.id !== claseId; });
-    guardarDatos();
+    if (!confirm("Eliminar esta clase y TODOS sus datos? No se puede deshacer.")) return;
+    if (typeof DajoxDB !== "undefined") DajoxDB.deleteClass(claseId);
+    else { appState.clases = appState.clases.filter(function(c){return c.id!==claseId;}); guardarDatos(); }
+    syncData();
     renderInstructorClases();
 }
 
@@ -839,20 +840,26 @@ function initAprendiz() {
             syncData();
             var obj = appState.clases.find(function(c) { return c.id === cod; });
             if (!obj) return alert("Codigo incorrecto. Verifica con tu instructor.");
-            var key = "dajox_joined_" + appState.user.email;
-            var joined = JSON.parse(localStorage.getItem(key) || "[]");
-            if (joined.indexOf(cod) === -1) joined.push(cod);
-            localStorage.setItem(key, JSON.stringify(joined));
-            var ci = appState.clases.findIndex(function(c) { return c.id === cod; });
-            if (ci !== -1) {
-                if (!appState.clases[ci].inscritos) appState.clases[ci].inscritos = [];
-                if (appState.clases[ci].inscritos.indexOf(appState.user.email) === -1) {
-                    appState.clases[ci].inscritos.push(appState.user.email);
-                    guardarDatos();
+            if (typeof DajoxDB !== "undefined") {
+                DajoxDB.enrollStudent(cod, appState.user.email);
+                DajoxDB.subscribeClass(cod);
+            } else {
+                var key = "dajox_joined_" + appState.user.email;
+                var joined = JSON.parse(localStorage.getItem(key) || "[]");
+                if (joined.indexOf(cod) === -1) joined.push(cod);
+                localStorage.setItem(key, JSON.stringify(joined));
+                var ci = appState.clases.findIndex(function(c) { return c.id === cod; });
+                if (ci !== -1) {
+                    if (!appState.clases[ci].inscritos) appState.clases[ci].inscritos = [];
+                    if (appState.clases[ci].inscritos.indexOf(appState.user.email) === -1) {
+                        appState.clases[ci].inscritos.push(appState.user.email);
+                        guardarDatos();
+                    }
                 }
             }
             document.getElementById("apCodigo").value = "";
             alert("Vinculado a " + obj.nombre + " exitosamente!");
+            syncData();
             renderAprendizClases();
         };
     }
@@ -1007,18 +1014,27 @@ function renderTabApPreguntas(clase, cont, claseId) {
             '<p style="font-size:0.85rem;color:var(--texto-mutado);margin-top:5px;">' + (esCorrecto ? "+" + pregunta.puntos + " puntos" : "Correcta: " + String.fromCharCode(65+pregunta.correcta) + ". " + pregunta.opciones[pregunta.correcta]) + '</p>';
         document.getElementById("cardPregunta").appendChild(banner);
 
-        var clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
-        var ci = clases.findIndex(function(c) { return c.id === claseId; });
-        if (!clases[ci].answersLog) clases[ci].answersLog = [];
-        clases[ci].answersLog.push({
+        var entry = {
             alumno: appState.user.email, tipo: "pregunta_individual",
             idMeta: pregunta.id, enunciado: pregunta.pregunta,
             image: pregunta.image || "", opciones: pregunta.opciones,
             seleccionada: seleccionada, correcta: pregunta.correcta,
             esCorrecto: esCorrecto, puntos: esCorrecto ? pregunta.puntos : 0,
             timestamp: Date.now()
-        });
-        localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+        };
+        if (typeof DajoxDB !== "undefined") {
+            DajoxDB.recordAnswer(claseId, entry);
+            var updCls = DajoxDB.getClass(claseId);
+            if (updCls && typeof mqttPublishClass === "function") mqttPublishClass(updCls);
+        } else {
+            var clases = JSON.parse(localStorage.getItem("dajox_clases_v3")) || [];
+            var ci = clases.findIndex(function(c) { return c.id === claseId; });
+            if (ci !== -1) {
+                if (!clases[ci].answersLog) clases[ci].answersLog = [];
+                clases[ci].answersLog.push(entry);
+                localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
+            }
+        }
         syncData();
         setTimeout(function() { renderTabAprendiz(claseId, "preguntas"); }, 2200);
     };
