@@ -17,9 +17,6 @@
     </main>
 
 
-    <!-- Firebase SDK (sincronizacion en tiempo real) -->
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
     <script src="questions.js"></script>
     <script>
         let examenPreguntas = [];
@@ -162,16 +159,8 @@
                 });
 
                 localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
-
-                /* Sincronizar con Firebase si está disponible */
-                try {
-                    if (window.firebase && typeof firebase.apps !== 'undefined' && firebase.apps.length) {
-                        var obj = {};
-                        clases.forEach(function(c) { if (c.id) obj[c.id.replace(/[.#$\/\[\]]/g, "_")] = c; });
-                        firebase.database().ref("dajox_v3").set(obj);
-                    }
-                } catch(e) {}
-
+                /* Sincronizar con la base de datos compartida */
+                if (typeof fbWrite === "function") fbWrite(clases);
                 alert(`Evaluación finalizada. Tu puntuación: ${notaPorcentaje}%`);
             }
 
