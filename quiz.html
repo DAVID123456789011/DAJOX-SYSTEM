@@ -15,6 +15,8 @@
         <div id="quizContainer"></div>
         <button id="btnEnviarQuiz" class="btn-primary" style="width:100%; margin-top:20px; padding:15px; background:var(--acento-verde);">Finalizar Evaluación Técnica</button>
     </main>
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
 
 
     <script src="questions.js"></script>
@@ -160,7 +162,7 @@
 
                 localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
                 /* Sincronizar con la base de datos compartida */
-                if (typeof fbWrite === "function") fbWrite(clases);
+                if (typeof window.dajoxMqttPublish === "function") window.dajoxMqttPublish(clases);
                 alert(`Evaluación finalizada. Tu puntuación: ${notaPorcentaje}%`);
             }
 
