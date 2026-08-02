@@ -3,14 +3,12 @@
     ========================================================================== */
 
 function getAuthSalonId() {
-    const host = window.location.hostname || "localhost";
-    if (host === "localhost" || host === "127.0.0.1") {
-        let salonId = localStorage.getItem("dajox_sid");
-        if (!salonId) {
-            salonId = "local-" + Math.random().toString(36).substr(2, 6);
-            localStorage.setItem("dajox_sid", salonId);
-        }
-        return salonId;
+    var query = new URLSearchParams(window.location.search);
+    var customSalon = query.get("salon");
+    if (customSalon) return customSalon.trim();
+    var host = window.location.hostname || "";
+    if (host === "localhost" || host === "127.0.0.1" || host === "" || /^10\.|^192\.168\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(host)) {
+        return "dajox-local";
     }
     return host.split(".")[0];
 }
