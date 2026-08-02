@@ -683,6 +683,7 @@ input[type="number"]::-webkit-outer-spin-button { appearance: none; }
 /* Items de resultado con borde lateral coloreado */
 .item-resultado {
     background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(0,212,255,0.08);
     border-left: 3px solid var(--neon-cyan);
     border-radius: 6px;
     padding: 10px 12px;
