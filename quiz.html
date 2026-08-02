@@ -75,11 +75,21 @@
                     ${p.image ? `<img src="${p.image}" style="max-height:220px; max-width:100%; object-fit:contain; margin-bottom:12px; display:block; border-radius:6px; border:1px solid var(--borde);" onerror="this.style.display='none'">` : ''}
                     <div style="display:flex; flex-direction:column; gap:8px;">
                         ${p.opciones.map((op, oIdx) => {
-                            const esImagenOp = op.startsWith("http") || op.startsWith("data:image");
+                            let opTexto = '';
+                            let opImagen = '';
+                            if (typeof op === 'string') {
+                                opTexto = op;
+                            } else if (typeof op === 'object' && op !== null) {
+                                opTexto = op.texto || '';
+                                opImagen = op.imagen || '';
+                            }
                             return `
-                                <label style="background:var(--bg-inputs); border:1px solid var(--borde); padding:12px 14px; border-radius:6px; display:flex; align-items:center; gap:10px; cursor:pointer;">
-                                    <input type="radio" name="p_${idx}" value="${oIdx}">
-                                    <span>${String.fromCharCode(65 + oIdx)}. ${esImagenOp ? `<img src="${op}" style="max-height:80px; border-radius:4px; display:inline-block; vertical-align:middle; margin-left:6px;" onerror="this.style.display='none'">` : op}</span>
+                                <label style="background:var(--bg-inputs); border:1px solid var(--borde); padding:12px 14px; border-radius:6px; display:flex; align-items:flex-start; gap:10px; cursor:pointer;">
+                                    <input type="radio" name="p_${idx}" value="${oIdx}" style="margin-top:4px;flex-shrink:0;">
+                                    <div style="flex:1;">
+                                        <span style="display:block;">${String.fromCharCode(65 + oIdx)}. ${opTexto}</span>
+                                        ${opImagen ? `<img src="${opImagen}" style="max-height:100px; margin-top:8px; border-radius:4px; display:block; vertical-align:top; max-width:100%; object-fit:contain;" onerror="this.style.display='none'">` : ''}
+                                    </div>
                                 </label>
                             `;
                         }).join('')}
