@@ -3,6 +3,37 @@
    ========================================================================== */
 let appState = { user: null, clases: [] };
 
+/* ── Función auxiliar: Randomizar opciones manteniendo track de la correcta ── */
+function shuffleOpciones(opciones, correctaIdx) {
+   if (!Array.isArray(opciones) || opciones.length === 0) {
+       return { opciones: opciones, correctaIdx: correctaIdx };
+   }
+    
+   // Crear array de índices
+   var indices = [0, 1, 2, 3].slice(0, opciones.length);
+    
+   // Fisher-Yates shuffle
+   for (var i = indices.length - 1; i > 0; i--) {
+       var j = Math.floor(Math.random() * (i + 1));
+       var temp = indices[i];
+       indices[i] = indices[j];
+       indices[j] = temp;
+   }
+    
+   // Crear nuevas opciones y encontrar nuevo índice correcto
+   var opcionesShuffled = [];
+   var nuevoCorrectaIdx = 0;
+    
+   for (var i = 0; i < indices.length; i++) {
+       opcionesShuffled.push(opciones[indices[i]]);
+       if (indices[i] === correctaIdx) {
+           nuevoCorrectaIdx = i;
+       }
+   }
+    
+   return { opciones: opcionesShuffled, correctaIdx: nuevoCorrectaIdx };
+}
+
 function syncData() {
     appState.clases = (typeof DajoxDB !== "undefined") ? DajoxDB.toArray()
         : (function(){ var r=JSON.parse(localStorage.getItem("dajox_clases_v3")||"[]"),s={};
@@ -16,6 +47,79 @@ function guardarDatos() {
     }
     syncData();
     mqttPublish(appState.clases);
+}
+
+function saveAuthenticationEmail(email) {
+    var deviceId = localStorage.getItem("dajox_device_id");
+    if (!deviceId) {
+        deviceId = "device-" + Math.random().toString(36).substr(2, 12);
+        localStorage.setItem("dajox_device_id", deviceId);
+    }
+    var accounts = JSON.parse(localStorage.getItem("dajox_accounts_data") || "[]");
+    var account = accounts.find(function(item) {
+        return item.email.toLowerCase() === appState.user.email.toLowerCase();
+    });
+    if (account) {
+        account.authEmail = email;
+        account.trustedDevices = Array.from(new Set([...(account.trustedDevices || []), deviceId]));
+    } else {
+        accounts.push({
+            email: appState.user.email,
+            role: appState.user.role,
+            authEmail: email,
+            trustedDevices: [deviceId]
+        });
+    }
+    localStorage.setItem("dajox_accounts_data", JSON.stringify(accounts));
+    appState.user.authEmail = email;
+    localStorage.setItem("usuarioActual", JSON.stringify(appState.user));
+
+    if (typeof _mqtt !== "undefined" && _mqtt && _mqttOk && typeof getDajoxSalonId === "function") {
+        _mqtt.publish("dajox-auth/" + getDajoxSalonId(), JSON.stringify(accounts), { qos: 1, retain: true });
+    }
+}
+
+function publishAuthenticationAccounts() {
+    if (typeof _mqtt === "undefined" || !_mqtt || !_mqttOk || typeof getDajoxSalonId !== "function") return;
+    var accounts = JSON.parse(localStorage.getItem("dajox_accounts_data") || "[]");
+    _mqtt.publish("dajox-auth/" + getDajoxSalonId(), JSON.stringify(accounts), { qos: 1, retain: true });
+}
+
+function showAuthenticationEmailPrompt() {
+    if (appState.user.authEmail) return;
+
+    var overlay = document.createElement("div");
+    overlay.className = "neon-overlay auth-email-overlay";
+    overlay.innerHTML =
+        '<div class="neon-modal auth-email-modal" role="dialog" aria-modal="true" aria-labelledby="authEmailTitle">' +
+            '<h2 id="authEmailTitle" style="color:var(--neon-cyan);font-family:Orbitron,sans-serif;font-size:1rem;letter-spacing:.08em;margin-bottom:12px;">VERIFICACIÓN DE CUENTA</h2>' +
+            '<p style="color:var(--texto-principal);line-height:1.6;margin-bottom:8px;">¿Deseas agregar un correo electrónico de autenticación?</p>' +
+            '<p style="color:var(--texto-mutado);font-size:.84rem;line-height:1.6;margin-bottom:18px;">Lo usaremos para confirmar que eres tú cuando abras DAJOX SYSTEM desde otro dispositivo.</p>' +
+            '<label for="authEmailInput" style="display:block;color:var(--texto-mutado);font-size:.78rem;letter-spacing:.08em;margin-bottom:6px;">CORREO DE AUTENTICACIÓN</label>' +
+            '<input id="authEmailInput" class="input-dajox" type="email" placeholder="tu-correo@ejemplo.com" autocomplete="email" style="width:100%;margin-bottom:8px;">' +
+            '<p id="authEmailError" style="display:none;color:var(--neon-pink);font-size:.8rem;margin-bottom:10px;"></p>' +
+            '<div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;">' +
+                '<button id="authEmailLater" style="background:transparent;border:1px solid var(--borde);color:var(--texto-mutado);padding:10px 18px;border-radius:4px;cursor:pointer;">Ahora no</button>' +
+                '<button id="authEmailSave" class="btn-primary">Guardar correo</button>' +
+            '</div>' +
+        '</div>';
+    document.body.appendChild(overlay);
+
+    var input = overlay.querySelector("#authEmailInput");
+    var error = overlay.querySelector("#authEmailError");
+    overlay.querySelector("#authEmailLater").onclick = function() { overlay.remove(); };
+    overlay.querySelector("#authEmailSave").onclick = function() {
+        var email = input.value.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+            error.textContent = "Ingresa un correo electrónico válido.";
+            error.style.display = "block";
+            input.focus();
+            return;
+        }
+        saveAuthenticationEmail(email);
+        overlay.remove();
+    };
+    setTimeout(function() { input.focus(); }, 100);
 }
 
 /* ── ARRANQUE ── */
@@ -42,6 +146,7 @@ window.onload = function() {
         },
         function onStatus(status) {
             _mqttStatus = status;
+            if (status === "online") publishAuthenticationAccounts();
             /* Actualizar indicador visual si ya existe */
             var dot = document.getElementById("mqttStatusDot");
             var lbl = document.getElementById("mqttStatusLbl");
@@ -59,6 +164,7 @@ window.onload = function() {
         document.getElementById("sectMainAprendiz").classList.remove("hidden");
         initAprendiz();
     }
+    showAuthenticationEmailPrompt();
 };
 
 /* ==========================================================================
@@ -110,7 +216,7 @@ function initInstructor() {
         } else {
             appState.clases.push({ id: "CLASE-"+Math.floor(Math.random()*9000+1000),
                 nombre:nom, ficha:fic, instructor:appState.user.email,
-                answersLog:[], examenesCreadosEstructurados:[], preguntasIndividuales:[], montajes:[], inscritos:[] });
+                answersLog:[], examenesCreadosEstructurados:[], bancoPreguntas:[], preguntasIndividuales:[], montajes:[], inscritos:[] });
             guardarDatos();
         }
         document.getElementById("insNombre").value = "";
@@ -152,6 +258,7 @@ function renderInstructorClases() {
                 '<button class="btn-accion btn-accion-indigo btn-ver-inscritos" data-id="' + clase.id + '">/// VER APRENDICES UNIDOS</button>' +
                 '<button class="btn-accion btn-accion-dark" data-panel="resultados" data-id="' + clase.id + '">03 // VER PUNTUACIONES DE ALUMNOS</button>' +
                 '<button class="btn-accion btn-accion-verde" data-panel="resultados" data-id="' + clase.id + '">RENDIMIENTO GLOBAL DE APRENDICES</button>' +
+                '<button class="btn-accion btn-accion-indigo btn-ver-contenido-clase" data-id="' + clase.id + '">04 // VER PREGUNTAS Y EXAMENES DE ESTA CLASE</button>' +
             '</div>';
 
         card.querySelector(".btn-eliminar").onclick = function() { eliminarClase(this.dataset.id); };
@@ -159,9 +266,395 @@ function renderInstructorClases() {
             btn.onclick = function() { abrirPanelInstructor(this.dataset.id, this.dataset.panel); };
         });
         card.querySelector(".btn-ver-inscritos").onclick = function() { verAprendicesInscritos(this.dataset.id); };
+        card.querySelector(".btn-ver-contenido-clase").onclick = function() { verPreguntasExamenesClase(this.dataset.id); };
 
         cont.appendChild(card);
     });
+}
+
+function abrirEditorPregunta(claseId, pregunta, guardarCambios) {
+    var overlay = document.createElement("div");
+    overlay.className = "neon-overlay";
+    overlay.style.zIndex = "2100";
+    var modal = document.createElement("div");
+    modal.className = "neon-modal";
+    modal.style.maxWidth = "800px";
+    modal.style.maxHeight = "90vh";
+    modal.style.overflowY = "auto";
+    modal.innerHTML =
+        '<button class="btn-cerrar-modal" id="btnCerrarEditor">✕</button>' +
+        '<h3 style="margin-bottom:4px;color:var(--neon-cyan);">EDITOR DE PREGUNTA</h3>' +
+        '<p style="color:var(--texto-mutado);font-size:.8rem;margin-bottom:16px;">Personaliza y mejora tu pregunta para hacerla mas didactica y creativa.</p>' +
+        '<div style="border-top:1px solid var(--neon-cyan);padding-top:12px;">' +
+            '<label style="display:block;color:var(--texto-mutado);font-size:.8rem;margin-bottom:5px;font-weight:700;">ENUNCIADO DE LA PREGUNTA</label>' +
+            '<textarea id="edEnunciado" class="input-dajox" style="width:100%;height:80px;resize:none;margin-bottom:12px;" placeholder="// Escribe el enunciado claro y conciso"></textarea>' +
+            '<label style="display:block;color:var(--texto-mutado);font-size:.8rem;margin-bottom:5px;font-weight:700;">URL DE IMAGEN (OPCIONAL)</label>' +
+            '<div style="display:flex;gap:8px;margin-bottom:8px;">' +
+                '<input type="text" id="edImagen" class="input-dajox" style="flex:1;" placeholder="https://ejemplo.com/imagen.jpg">' +
+                '<button id="btnPrevEdImg" class="btn-primary" style="flex-shrink:0;font-size:0.8rem;background:var(--neon-cyan);color:#000;">VISTA PREVIA</button>' +
+            '</div>' +
+            '<div id="edImgPrev" style="margin-bottom:12px;min-height:0;"></div>' +
+            '<label style="display:block;color:var(--texto-mutado);font-size:.8rem;margin-bottom:8px;font-weight:700;">OPCIONES DE RESPUESTA (Puedes agregar texto, imagen o ambos)</label>' +
+            '<div id="edOpciones" style="margin-bottom:12px;"></div>' +
+            '<div style="display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-top:16px;">' +
+                '<button id="btnCancelarEditor" class="btn-primary" style="background:transparent;border:1px solid var(--neon-pink);color:var(--neon-pink);">CANCELAR</button>' +
+                '<button id="btnGuardarEditor" class="btn-primary" style="background:var(--neon-cyan);color:#000;">GUARDAR CAMBIOS</button>' +
+            '</div>' +
+        '</div>';
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    function renderImagePreview(url) {
+        var prev = modal.querySelector("#edImgPrev");
+        prev.innerHTML = '';
+        if (!url) return;
+        var img = document.createElement('img');
+        img.src = url;
+        img.referrerPolicy = 'no-referrer';
+        img.alt = 'Vista previa';
+        img.style.cssText = 'max-height:120px;max-width:100%;object-fit:contain;border-radius:6px;border:1px solid rgba(0,212,255,0.2);display:block;';
+        img.onerror = function() {
+            prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.78rem;margin:0 0 4px;">La URL no apunta directamente a una imagen.</p>' +
+                '<a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:var(--neon-cyan);font-size:0.78rem;">Abrir URL</a>';
+        };
+        prev.appendChild(img);
+    }
+
+    function normalizarOpcion(opcion) {
+        if (typeof opcion === 'string') {
+            return { texto: opcion, imagen: '' };
+        }
+        return opcion || { texto: '', imagen: '' };
+    }
+
+    document.getElementById("edEnunciado").value = pregunta.pregunta || '';
+    document.getElementById("edImagen").value = pregunta.image || '';
+
+    var opcContainer = modal.querySelector("#edOpciones");
+    (pregunta.opciones || []).forEach(function(opcion, index) {
+        var opNorm = normalizarOpcion(opcion);
+        var divOp = document.createElement("div");
+        divOp.style.cssText = "background:rgba(255,255,255,0.02);border:1px solid var(--neon-cyan);border-radius:6px;padding:10px;margin-bottom:10px;";
+        divOp.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-start;">' +
+            '<input type="radio" name="edCorrecta" value="' + index + '" style="margin-top:4px;cursor:pointer;"' + (index === pregunta.correcta ? ' checked' : '') + '>' +
+            '<span style="color:var(--neon-green);font-weight:700;min-width:24px;margin-top:3px;">Opción ' + String.fromCharCode(65 + index) + '</span>' +
+            '<div style="flex:1;">' +
+                '<input type="text" class="input-dajox edOpTexto" data-index="' + index + '" value="' + (opNorm.texto || '').replace(/"/g, '&quot;') + '" placeholder="Texto de la opción (obligatorio)" style="width:100%;margin-bottom:6px;">' +
+                '<input type="text" class="input-dajox edOpImagen" data-index="' + index + '" value="' + (opNorm.imagen || '').replace(/"/g, '&quot;') + '" placeholder="URL de imagen (opcional)" style="width:100%;margin-bottom:6px;">' +
+                '<div class="edOpPrev" data-index="' + index + '" style="min-height:0;"></div>' +
+            '</div>' +
+        '</div>';
+        opcContainer.appendChild(divOp);
+    });
+
+    function renderOpcionImagenPreview(index) {
+        var url = modal.querySelector('.edOpImagen[data-index="' + index + '"]').value.trim();
+        var prev = modal.querySelector('.edOpPrev[data-index="' + index + '"]');
+        prev.innerHTML = '';
+        if (!url) return;
+        var img = document.createElement('img');
+        img.src = url;
+        img.referrerPolicy = 'no-referrer';
+        img.alt = 'Previa opción';
+        img.style.cssText = 'max-height:100px;max-width:100%;object-fit:contain;border-radius:4px;border:1px solid rgba(0,255,136,0.3);display:block;';
+        img.onerror = function() {
+            prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.75rem;margin:0;">URL inválida</p>';
+        };
+        prev.appendChild(img);
+    }
+
+    modal.querySelectorAll('.edOpImagen').forEach(function(inp) {
+        inp.oninput = function() { renderOpcionImagenPreview(parseInt(this.dataset.index, 10)); };
+        renderOpcionImagenPreview(parseInt(inp.dataset.index, 10));
+    });
+
+    modal.querySelector("#edImagen").oninput = function() {
+        renderImagePreview(this.value.trim());
+    };
+    modal.querySelector("#btnPrevEdImg").onclick = function() {
+        renderImagePreview(modal.querySelector("#edImagen").value.trim());
+    };
+
+    modal.querySelector("#btnCerrarEditor").onclick = function() { overlay.remove(); };
+    modal.querySelector("#btnCancelarEditor").onclick = function() { overlay.remove(); };
+    modal.querySelector("#btnGuardarEditor").onclick = function() {
+        var enunciado = modal.querySelector("#edEnunciado").value.trim();
+        if (!enunciado) return alert("El enunciado no puede estar vacio.");
+        var opciones = [0, 1, 2, 3].map(function(i) {
+            var texto = modal.querySelector('.edOpTexto[data-index="' + i + '"]').value.trim();
+            var imagen = modal.querySelector('.edOpImagen[data-index="' + i + '"]').value.trim();
+            return { texto: texto, imagen: imagen };
+        });
+        if (opciones.some(function(o) { return !o.texto; })) return alert("El texto de todas las opciones es obligatorio.");
+        var correctaRad = modal.querySelector('input[name="edCorrecta"]:checked');
+        if (!correctaRad) return alert("Selecciona la opcion correcta.");
+        
+        // Actualizar directamente en appState para asegurar guardado
+        var nuevaImagen = modal.querySelector("#edImagen").value.trim();
+        pregunta.pregunta = enunciado;
+        pregunta.opciones = opciones;
+        pregunta.correcta = parseInt(correctaRad.value, 10);
+        pregunta.image = nuevaImagen;
+        
+        // Guardar explícitamente en localStorage
+        guardarCambios();
+        overlay.remove();
+    };
+}
+
+function verPreguntasExamenesClase(claseId) {
+    var overlay = document.createElement("div");
+    overlay.className = "neon-overlay";
+    overlay.id = "contenido-clase-" + claseId;
+    var modal = document.createElement("div");
+    modal.className = "neon-modal";
+    modal.style.maxWidth = "760px";
+    modal.innerHTML =
+        '<button class="btn-cerrar-modal" id="btnCerrarContenidoClase">✕</button>' +
+        '<h3 style="margin-bottom:4px;">PREGUNTAS Y EXAMENES DE LA CLASE</h3>' +
+        '<p style="color:var(--texto-mutado);font-size:.8rem;margin-bottom:18px;">Consulta y administra todo el contenido creado para este ambiente.</p>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">' +
+            '<button class="btn-accion btn-accion-azul" id="btnVerPreguntasClase">VER PREGUNTAS</button>' +
+            '<button class="btn-accion btn-accion-morado" id="btnVerExamenesClase">VER EXAMENES</button>' +
+        '</div>' +
+        '<div id="contenidoClaseLista"></div>';
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    function obtenerClase() {
+        syncData();
+        return appState.clases.find(function(clase) { return clase.id === claseId; });
+    }
+
+    function renderPreguntas() {
+        var clase = obtenerClase();
+        var bancos = clase ? (clase.bancoPreguntas || []) : [];
+        
+        if (bancos.length === 0) {
+            var listaEl = modal.querySelector("#contenidoClaseLista");
+            listaEl.innerHTML = '<h4 style="color:var(--neon-cyan);margin-bottom:10px;">BANCOS DE PREGUNTAS (0)</h4><p style="color:var(--texto-mutado);">// No hay bancos creados. Crea uno en el primer botón "GESTIONAR BANCO DE PREGUNTAS".</p>';
+            return;
+        }
+
+        var bancosHTML = bancos.map(function(banco, bancoIndex) {
+            var totalPts = banco.preguntas.reduce(function(sum, p) { return sum + (p.puntos || 0); }, 0);
+            var preguntasHTML = (banco.preguntas || []).map(function(pregunta, preguntaIndex) {
+                var opcionesTexto = (pregunta.opciones || []).map(function(opcion, opcionIndex) {
+                    var texto = typeof opcion === 'string' ? opcion : (opcion.texto || '');
+                    var imagen = typeof opcion === 'string' ? '' : (opcion.imagen || '');
+                    var marcaCorrecta = opcionIndex === pregunta.correcta ? ' ✓' : '';
+                    var htmlImg = imagen ? ' <a href="' + imagen.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:var(--neon-green);font-size:.75rem;">[img]</a>' : '';
+                    return String.fromCharCode(65 + opcionIndex) + ') ' + texto + htmlImg + marcaCorrecta;
+                }).join(' &nbsp; ');
+                return '<div style="margin-bottom:8px;padding:8px;background:rgba(255,255,255,0.02);border-left:3px solid var(--neon-cyan);border-radius:3px;">' +
+                    '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">' +
+                        '<div style="flex:1;">' +
+                            '<p style="font-size:0.85rem;font-weight:600;">' + (preguntaIndex + 1) + '. ' + pregunta.pregunta + '</p>' +
+                            '<p style="color:var(--texto-mutado);font-size:.75rem;margin-top:4px;">' + opcionesTexto + '</p>' +
+                            '<div style="display:flex;gap:8px;margin-top:6px;align-items:center;">' +
+                                '<span style="color:var(--neon-cyan);font-size:0.78rem;font-weight:700;">' + (pregunta.puntos || 0) + ' pts</span>' +
+                                '<input type="number" class="puntos-pregunta" data-banco="' + bancoIndex + '" data-pregunta="' + preguntaIndex + '" value="' + (pregunta.puntos || 0) + '" min="1" max="100" style="width:50px;padding:3px 6px;font-size:0.78rem;background:var(--bg-inputs);border:1px solid var(--borde);border-radius:3px;color:var(--texto-principal);">' +
+                            '</div>' +
+                        '</div>' +
+                        '<div style="display:flex;gap:5px;flex-shrink:0;">' +
+                            '<button class="btn-mini-azul btn-editar-pregunta-banco" data-banco="' + bancoIndex + '" data-pregunta="' + preguntaIndex + '">EDITAR</button>' +
+                            '<button class="btn-mini-rojo btn-eliminar-pregunta-banco" data-banco="' + bancoIndex + '" data-pregunta="' + preguntaIndex + '">✕</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+            
+            return '<div style="background:rgba(0,212,255,0.02);border:1px solid var(--neon-cyan);border-radius:6px;padding:12px;margin-bottom:12px;">' +
+                '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">' +
+                    '<div>' +
+                        '<p style="font-weight:700;font-size:1rem;color:var(--neon-cyan);">' + banco.titulo + '</p>' +
+                        '<p style="color:var(--texto-mutado);font-size:0.8rem;margin-top:2px;">' + banco.preguntas.length + ' preguntas | Total: <span style="color:var(--neon-green);font-weight:700;">' + totalPts + ' pts</span></p>' +
+                    '</div>' +
+                    '<div style="display:flex;gap:5px;flex-shrink:0;">' +
+                        '<button class="btn-mini-rojo btn-eliminar-banco" data-banco="' + bancoIndex + '">ELIMINAR BANCO</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div style="border-top:1px solid rgba(0,212,255,0.2);padding-top:10px;">' +
+                    preguntasHTML +
+                '</div>' +
+            '</div>';
+        }).join('');
+
+        var listaEl = modal.querySelector("#contenidoClaseLista");
+        listaEl.innerHTML = '<h4 style="color:var(--neon-cyan);margin-bottom:10px;">BANCOS DE PREGUNTAS (' + bancos.length + ')</h4>' + bancosHTML;
+
+        // Editar pregunta
+        listaEl.querySelectorAll(".btn-editar-pregunta-banco").forEach(function(btn) {
+            btn.onclick = function() {
+                var claseActual = obtenerClase();
+                var banco = claseActual.bancoPreguntas[parseInt(btn.dataset.banco, 10)];
+                var pregunta = banco.preguntas[parseInt(btn.dataset.pregunta, 10)];
+                abrirEditorPregunta(claseId, pregunta, function() {
+                    guardarDatos();
+                    renderPreguntas();
+                });
+            };
+        });
+
+        // Eliminar pregunta del banco
+        listaEl.querySelectorAll(".btn-eliminar-pregunta-banco").forEach(function(btn) {
+            btn.onclick = function() {
+                if (!confirm("¿Eliminar esta pregunta del banco?")) return;
+                var claseActual = obtenerClase();
+                var banco = claseActual.bancoPreguntas[parseInt(btn.dataset.banco, 10)];
+                banco.preguntas.splice(parseInt(btn.dataset.pregunta, 10), 1);
+                if (banco.preguntas.length === 0) {
+                    claseActual.bancoPreguntas.splice(parseInt(btn.dataset.banco, 10), 1);
+                }
+                guardarDatos();
+                renderPreguntas();
+            };
+        });
+
+        // Eliminar banco completo
+        listaEl.querySelectorAll(".btn-eliminar-banco").forEach(function(btn) {
+            btn.onclick = function() {
+                if (!confirm("¿Eliminar este banco de preguntas completo?")) return;
+                var claseActual = obtenerClase();
+                claseActual.bancoPreguntas.splice(parseInt(btn.dataset.banco, 10), 1);
+                guardarDatos();
+                renderPreguntas();
+            };
+        });
+
+        // Recalculación automática cuando se editan puntos
+        listaEl.querySelectorAll('.puntos-pregunta').forEach(function(inp) {
+            inp.onchange = function() {
+                var bancoIdx = parseInt(this.dataset.banco, 10);
+                var pregIdx = parseInt(this.dataset.pregunta, 10);
+                var nuevoValor = parseInt(this.value) || 0;
+                
+                var claseActual = obtenerClase();
+                var banco = claseActual.bancoPreguntas[bancoIdx];
+                
+                // Marcar esta pregunta como editada
+                var puntosEditados = {};
+                puntosEditados[pregIdx] = nuevoValor;
+                
+                // Leer todos los puntos actuales del formulario
+                var puntosActuales = {};
+                listaEl.querySelectorAll('.puntos-pregunta[data-banco="' + bancoIdx + '"]').forEach(function(inp2) {
+                    var idx = parseInt(inp2.dataset.pregunta, 10);
+                    puntosActuales[idx] = parseInt(inp2.value) || 0;
+                });
+                
+                // Calcular nueva distribución respetando todos los valores editados
+                var puntosUsados = 0;
+                var indicesLibres = [];
+                for (var i = 0; i < banco.preguntas.length; i++) {
+                    if (puntosActuales[i] > 0) {
+                        puntosUsados += puntosActuales[i];
+                    } else {
+                        indicesLibres.push(i);
+                    }
+                }
+                
+                var puntosRestantes = 100 - puntosUsados;
+                var puntoPorPregunta = indicesLibres.length > 0 ? Math.floor(puntosRestantes / indicesLibres.length) : 0;
+                
+                // Aplicar nueva distribución a preguntas sin puntos editados
+                for (var i = 0; i < banco.preguntas.length; i++) {
+                    if (puntosActuales[i] > 0) {
+                        banco.preguntas[i].puntos = puntosActuales[i];
+                    } else {
+                        banco.preguntas[i].puntos = puntoPorPregunta;
+                    }
+                }
+                
+                // Ajustar diferencia para llegar exactamente a 100
+                var suma = Object.values(puntosActuales).reduce(function(a, b) { return a + b; }, 0) + (puntoPorPregunta * indicesLibres.length);
+                if (suma < 100 && indicesLibres.length > 0) {
+                    banco.preguntas[indicesLibres[0]].puntos += (100 - suma);
+                }
+                
+                guardarDatos();
+                renderPreguntas();
+            };
+        });
+    }
+
+    function renderExamenes() {
+        var clase = obtenerClase();
+        var examenes = clase ? (clase.examenesCreadosEstructurados || []) : [];
+        var lista = examenes.length === 0
+            ? '<p style="color:var(--texto-mutado);">// No hay examenes creados.</p>'
+            : examenes.map(function(examen, index) {
+                return '<div class="item-lista" style="margin-bottom:8px;">' +
+                    '<div style="display:flex;justify-content:space-between;gap:10px;align-items:center;">' +
+                        '<div><p style="font-weight:700;">' + examen.nombre + '</p><p style="color:var(--texto-mutado);font-size:.8rem;">' + (examen.preguntas || []).length + ' preguntas</p></div>' +
+                        '<div style="display:flex;gap:5px;flex-shrink:0;"><button class="btn-mini-azul btn-editar-examen-clase" data-index="' + index + '">EDITAR</button><button class="btn-mini-rojo btn-eliminar-examen-clase" data-index="' + index + '">✕</button></div>' +
+                    '</div>' +
+                    '<div class="examen-preguntas-clase" data-exam-index="' + index + '" style="margin-top:10px;"></div>' +
+                '</div>';
+            }).join('');
+        var listaEl = modal.querySelector("#contenidoClaseLista");
+        listaEl.innerHTML = '<h4 style="color:var(--neon-cyan);margin-bottom:10px;">EXAMENES (' + examenes.length + ')</h4>' + lista;
+        listaEl.querySelectorAll(".examen-preguntas-clase").forEach(function(contenedor) {
+            var examen = examenes[parseInt(contenedor.dataset.examIndex, 10)];
+            contenedor.innerHTML = (examen.preguntas || []).map(function(pregunta, preguntaIndex) {
+                return '<div style="border-left:2px solid var(--neon-cyan);padding:7px 10px;margin-top:5px;background:rgba(0,212,255,.025);">' +
+                    '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;">' +
+                        '<span style="font-size:.82rem;">' + (preguntaIndex + 1) + '. ' + pregunta.pregunta + '</span>' +
+                        '<span style="display:flex;gap:4px;flex-shrink:0;">' +
+                            '<button class="btn-mini-azul btn-editar-pregunta-examen" data-exam-index="' + contenedor.dataset.examIndex + '" data-question-index="' + preguntaIndex + '">EDITAR</button>' +
+                            '<button class="btn-mini-rojo btn-eliminar-pregunta-examen" data-exam-index="' + contenedor.dataset.examIndex + '" data-question-index="' + preguntaIndex + '">✕</button>' +
+                        '</span>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        });
+        listaEl.querySelectorAll(".btn-editar-pregunta-examen").forEach(function(btn) {
+            btn.onclick = function() {
+                var claseActual = obtenerClase();
+                var examen = claseActual.examenesCreadosEstructurados[parseInt(btn.dataset.examIndex, 10)];
+                var pregunta = examen.preguntas[parseInt(btn.dataset.questionIndex, 10)];
+                abrirEditorPregunta(claseId, pregunta, function() {
+                    guardarDatos();
+                    renderExamenes();
+                });
+            };
+        });
+        listaEl.querySelectorAll(".btn-eliminar-pregunta-examen").forEach(function(btn) {
+            btn.onclick = function() {
+                if (!confirm("¿Eliminar esta pregunta del examen?")) return;
+                var claseActual = obtenerClase();
+                var examen = claseActual.examenesCreadosEstructurados[parseInt(btn.dataset.examIndex, 10)];
+                examen.preguntas.splice(parseInt(btn.dataset.questionIndex, 10), 1);
+                guardarDatos();
+                renderExamenes();
+            };
+        });
+        listaEl.querySelectorAll(".btn-editar-examen-clase").forEach(function(btn) {
+            btn.onclick = function() {
+                var claseActual = obtenerClase();
+                var examen = claseActual.examenesCreadosEstructurados[parseInt(btn.dataset.index, 10)];
+                var nombre = prompt("Nombre del examen:", examen.nombre);
+                if (nombre === null || !nombre.trim()) return;
+                examen.nombre = nombre.trim();
+                guardarDatos();
+                renderExamenes();
+            };
+        });
+        listaEl.querySelectorAll(".btn-eliminar-examen-clase").forEach(function(btn) {
+            btn.onclick = function() {
+                if (!confirm("¿Eliminar este examen y todas sus preguntas?")) return;
+                var claseActual = obtenerClase();
+                claseActual.examenesCreadosEstructurados.splice(parseInt(btn.dataset.index, 10), 1);
+                guardarDatos();
+                renderExamenes();
+            };
+        });
+    }
+
+    modal.querySelector("#btnCerrarContenidoClase").onclick = function() { overlay.remove(); };
+    modal.querySelector("#btnVerPreguntasClase").onclick = renderPreguntas;
+    modal.querySelector("#btnVerExamenesClase").onclick = renderExamenes;
+    modal.querySelector("#btnVerPreguntasClase").click();
 }
 
 function eliminarClase(claseId) {
@@ -196,39 +689,51 @@ function abrirPanelInstructor(claseId, tabInicial) {
     syncData();
     var clase = appState.clases.find(function(c) { return c.id === claseId; });
     if (!clase) return;
-    var panel = document.getElementById("contenedorPestanaFlotante");
-    panel.classList.remove("hidden");
-    panel.innerHTML =
-        '<div class="neon-overlay">' +
-            '<div class="neon-modal" style="max-width:940px;width:100%;">' +
-                '<button class="btn-cerrar-modal" id="btnCerrarPanel">✕</button>' +
-                '<h3 style="margin-bottom:4px;">' + clase.nombre.toUpperCase() + '</h3>' +
-                '<p style="color:var(--texto-mutado);font-size:0.8rem;margin-bottom:18px;letter-spacing:0.06em;">FICHA: ' + clase.ficha + ' &nbsp;|&nbsp; CODIGO: <span class="codigo-neon">' + clase.id + '</span></p>' +
-                '<div class="tabs-bar">' +
-                    '<button class="tab-ins btn-primary" data-tab="preguntas">PREGUNTAS</button>' +
-                    '<button class="tab-ins btn-primary" data-tab="examenes" style="background:var(--neon-cyan);color:#000;">EXAMENES</button>' +
-                    '<button class="tab-ins btn-primary" data-tab="montaje" style="background:var(--neon-purple);">MONTAJE</button>' +
-                    '<button class="tab-ins btn-primary" data-tab="resultados" style="background:var(--neon-green);color:#000;">RESULTADOS</button>' +
-                '</div>' +
-                '<div id="tabContenido"></div>' +
-            '</div>' +
-        '</div>';
-
-    document.getElementById("btnCerrarPanel").onclick = function() {
-        panel.innerHTML = "";
-        panel.classList.add("hidden");
-        renderInstructorClases();
+    
+    // Crear ID único para esta pestaña
+    var pestaId = "pestaña-" + claseId + "-" + tabInicial + "-" + Date.now();
+    
+    // Crear overlay y modal únicos
+    var overlay = document.createElement("div");
+    overlay.className = "neon-overlay";
+    overlay.id = pestaId;
+    
+    var modal = document.createElement("div");
+    modal.className = "neon-modal";
+    modal.style.maxWidth = "700px";
+    
+    var btnCerrar = document.createElement("button");
+    btnCerrar.className = "btn-cerrar-modal";
+    btnCerrar.textContent = "✕";
+    
+    var header = document.createElement("div");
+    header.innerHTML = 
+        '<h3 style="margin-bottom:4px;">' + clase.nombre.toUpperCase() + '</h3>' +
+        '<p style="color:var(--texto-mutado);font-size:0.8rem;margin-bottom:18px;letter-spacing:0.06em;">FICHA: ' + clase.ficha + ' &nbsp;|&nbsp; CODIGO: <span class="codigo-neon">' + clase.id + '</span></p>';
+    
+    var contenido = document.createElement("div");
+    contenido.id = "cont-" + pestaId;
+    
+    modal.appendChild(btnCerrar);
+    modal.appendChild(header);
+    modal.appendChild(contenido);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    // Evento cerrar
+    btnCerrar.onclick = function() {
+        document.body.removeChild(overlay);
     };
-    panel.querySelectorAll(".tab-ins").forEach(function(t) {
-        t.onclick = function() { renderTabInstructor(claseId, this.dataset.tab); };
-    });
-    renderTabInstructor(claseId, tabInicial || "preguntas");
+    
+    // Renderizar contenido
+    renderTabInstructorIndependiente(claseId, tabInicial, contenido.id);
 }
 
-function renderTabInstructor(claseId, tab) {
+function renderTabInstructorIndependiente(claseId, tab, contenedorId) {
     syncData();
     var clase = appState.clases.find(function(c) { return c.id === claseId; });
-    var cont = document.getElementById("tabContenido");
+    var cont = document.getElementById(contenedorId);
+    if (!cont) return;
     if (tab === "preguntas") renderTabPreguntas(clase, cont, claseId);
     else if (tab === "examenes") renderTabExamenes(clase, cont, claseId);
     else if (tab === "montaje") renderTabMontaje(clase, cont, claseId);
@@ -237,149 +742,269 @@ function renderTabInstructor(claseId, tab) {
 
 /* ── Tab Preguntas individuales ── */
 function renderTabPreguntas(clase, cont, claseId) {
-    var preguntas = clase.preguntasIndividuales || [];
-
-    function imgTag(url, h) {
-        if (!url) return '';
-        return '<img src="' + url + '" referrerpolicy="no-referrer" style="max-height:' + (h||70) + 'px;max-width:200px;object-fit:contain;border-radius:4px;margin:6px 0;display:block;border:1px solid rgba(0,212,255,0.15);" onerror="this.style.display=\'none\'">';
+    var bancos = clase.bancoPreguntas || [];
+    var bancoPreguntasTemp = [];
+    
+    function calcularPuntos(totalPreguntas, puntosEditados) {
+        puntosEditados = puntosEditados || {};
+        var puntosUsados = 0;
+        var indices = [];
+        for (var i = 0; i < totalPreguntas; i++) {
+            if (puntosEditados[i] !== undefined) {
+                puntosUsados += puntosEditados[i];
+            } else {
+                indices.push(i);
+            }
+        }
+        var puntosRestantes = 100 - puntosUsados;
+        var puntoPorPregunta = indices.length > 0 ? Math.floor(puntosRestantes / indices.length) : 0;
+        var resultado = {};
+        for (var i = 0; i < totalPreguntas; i++) {
+            resultado[i] = puntosEditados[i] !== undefined ? puntosEditados[i] : puntoPorPregunta;
+        }
+        var suma = Object.values(resultado).reduce(function(a, b) { return a + b; }, 0);
+        if (suma < 100 && indices.length > 0) {
+            resultado[indices[0]] += (100 - suma);
+        }
+        return resultado;
     }
-
-    var listaHTML = preguntas.length === 0
-        ? '<p style="color:var(--texto-mutado);font-size:0.85rem;">// Sin preguntas creadas aun.</p>'
-        : preguntas.map(function(p, idx) {
-            return '<div class="item-lista">' +
-                '<div style="display:flex;justify-content:space-between;align-items:start;gap:10px;">' +
-                    '<div style="flex:1;">' +
-                        '<p style="font-weight:600;">' + (idx+1) + '. ' + p.pregunta + '</p>' +
-                        imgTag(p.image, 80) +
-                        '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-top:5px;">' +
-                            p.opciones.map(function(op, i) {
-                                return '<span style="margin-right:8px;' + (i === p.correcta ? 'color:var(--neon-green);font-weight:700;' : '') + '">' + String.fromCharCode(65+i) + ') ' + op + '</span>';
-                            }).join('') +
-                        '</p>' +
-                        '<p style="font-size:0.78rem;color:var(--neon-cyan);margin-top:3px;">' + p.puntos + ' pts</p>' +
-                    '</div>' +
-                    '<button class="btn-mini-rojo" data-pid="' + p.id + '">✕</button>' +
-                '</div>' +
-            '</div>';
-        }).join('');
-
-    /* Banco de 30 preguntas predeterminadas */
-    var banco30 = (typeof bancoPredeterminado30 !== 'undefined') ? bancoPredeterminado30 : [];
-    var bancoPQIds = preguntas.map(function(p) { return p.pregunta; });
-    var bancoHTML = banco30.map(function(p) {
-        var yaAgregada = bancoPQIds.indexOf(p.pregunta) !== -1;
-        return '<div style="background:rgba(0,212,255,0.02);border:1px solid rgba(0,212,255,0.08);border-radius:6px;padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px;">' +
-            '<div style="flex:1;">' +
-                '<p style="font-size:0.84rem;font-weight:600;">' + p.pregunta + '</p>' +
-                '<p style="font-size:0.76rem;color:var(--texto-mutado);margin-top:3px;">' +
-                    p.opciones.map(function(op,i){ return '<span style="margin-right:6px;' + (i===p.correcta?'color:var(--neon-green);font-weight:700;':'') + '">' + String.fromCharCode(65+i) + ') ' + op + '</span>'; }).join('') +
-                '</p>' +
-            '</div>' +
-            (yaAgregada
-                ? '<span style="color:var(--neon-green);font-size:0.76rem;flex-shrink:0;">YA AGREGADA</span>'
-                : '<button class="btn-mini-azul btn-banco-add" data-bancoidx="' + banco30.indexOf(p) + '" style="flex-shrink:0;">+ AGREGAR</button>') +
-        '</div>';
-    }).join('');
 
     cont.innerHTML =
-        '<div class="seccion-form">' +
-            '<h4 style="margin-bottom:12px;">AGREGAR PREGUNTA PROPIA</h4>' +
-            '<input type="text" id="pqEnunciado" placeholder="// Enunciado de la pregunta" class="input-dajox" style="width:100%;margin-bottom:8px;">' +
-            '<div style="display:flex;gap:8px;margin-bottom:6px;">' +
-                '<input type="text" id="pqImagen" placeholder="// URL de imagen (opcional)" class="input-dajox" style="flex:1;">' +
-                '<button id="btnPrevImg" class="btn-primary" style="flex-shrink:0;font-size:0.8rem;background:var(--neon-cyan);color:#000;">VER</button>' +
-            '</div>' +
-            '<div id="pqImgPrev" style="margin-bottom:8px;min-height:0;"></div>' +
-            ['A','B','C','D'].map(function(l, i) {
-                return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">' +
-                    '<label style="min-width:72px;font-size:0.82rem;color:var(--texto-mutado);">OPC ' + l + ':</label>' +
-                    '<input type="text" id="pqOp' + i + '" placeholder="Opcion ' + l + '" class="input-dajox" style="flex:1;">' +
-                    '<label style="font-size:0.82rem;display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--neon-green);">' +
-                        '<input type="radio" name="pqCorrecta" value="' + i + '"> ✓' +
-                    '</label>' +
-                '</div>';
-            }).join('') +
-            '<div style="display:flex;gap:8px;margin-top:10px;align-items:center;">' +
-                '<input type="number" id="pqPuntos" value="10" min="1" class="input-dajox" style="width:76px;">' +
-                '<span style="font-size:0.82rem;color:var(--texto-mutado);">pts</span>' +
-                '<button id="btnAgregarPQ" class="btn-primary" style="margin-left:auto;">+ AGREGAR</button>' +
-            '</div>' +
+        '<div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;border-bottom:2px solid var(--neon-cyan);padding-bottom:12px;">' +
+            '<button id="tabCrearPropio" class="btn-primary" style="background:var(--neon-cyan);color:#000;font-weight:700;">CREAR BANCO PROPIO</button>' +
+            '<button id="tabBancoAuto" class="btn-primary" style="background:transparent;border:1px solid var(--neon-cyan);color:var(--neon-cyan);">CARGAR DEL BANCO AUTOMÁTICO</button>' +
         '</div>' +
-        '<h4 style="margin:18px 0 10px;">MIS PREGUNTAS (' + preguntas.length + ')</h4>' +
-        listaHTML +
-        '<details style="margin-top:18px;">' +
-            '<summary style="cursor:pointer;color:var(--neon-cyan);font-size:0.85rem;letter-spacing:0.06em;padding:8px 0;font-weight:700;">BANCO PREDETERMINADO (' + banco30.length + ' preguntas) — clic para expandir</summary>' +
-            '<div style="margin-top:10px;">' + bancoHTML + '</div>' +
-        '</details>';
+        '<div id="seccionCrearPropio"></div>' +
+        '<div id="seccionBancoAuto" style="display:none;"></div>';
 
-    /* Preview de imagen */
-    function showImgPrev(url) {
-        var prev = document.getElementById("pqImgPrev");
-        if (!url) { prev.innerHTML = ''; return; }
-        prev.innerHTML = '<img src="' + url + '" referrerpolicy="no-referrer" style="max-height:100px;max-width:200px;object-fit:contain;border-radius:6px;border:1px solid rgba(0,212,255,0.2);" onerror="this.parentElement.innerHTML=\'<p style=\'color:var(--neon-pink);font-size:0.8rem;\'>No se puede cargar la imagen. Verifica la URL.</p>\'">';
+    // Contenido - Crear Banco Propio
+    var secCrearPropio = cont.querySelector("#seccionCrearPropio");
+    secCrearPropio.innerHTML =
+        '<div class="seccion-form">' +
+            '<h4 style="margin-bottom:12px;">CREAR NUEVO BANCO DE PREGUNTAS</h4>' +
+            '<input type="text" id="nbTitulo" placeholder="Ej: Ensambles de equipos" class="input-dajox" style="width:100%;margin-bottom:10px;">' +
+            '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-bottom:10px;">// El sistema distribuirá automáticamente 100 puntos entre todas las preguntas</p>' +
+            '<div id="nbPreguntasTemp" style="background:rgba(0,212,255,0.02);border:1px solid rgba(0,212,255,0.1);border-radius:6px;padding:12px;margin-bottom:12px;min-height:60px;"></div>' +
+            '<div class="sub-form" style="background:rgba(255,255,255,0.01);padding:10px;border-radius:6px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.08);">' +
+                '<p style="font-size:0.82rem;color:var(--neon-cyan);margin-bottom:8px;letter-spacing:0.06em;">AGREGAR PREGUNTA AL BANCO:</p>' +
+                '<input type="text" id="nbPqEnunciado" placeholder="// Enunciado" class="input-dajox" style="width:100%;margin-bottom:6px;">' +
+                '<input type="text" id="nbPqImagen" placeholder="// URL imagen (opcional)" class="input-dajox" style="width:100%;margin-bottom:6px;">' +
+                '<div id="nbPqImgPrev" style="margin-bottom:6px;"></div>' +
+                ['A','B','C','D'].map(function(l, i) {
+                    return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">' +
+                        '<label style="min-width:70px;font-size:0.8rem;color:var(--texto-mutado);">OPC ' + l + ':</label>' +
+                        '<input type="text" id="nbOp' + i + '" placeholder="Opcion ' + l + '" class="input-dajox" style="flex:1;font-size:0.84rem;">' +
+                        '<label style="font-size:0.8rem;display:flex;align-items:center;gap:3px;cursor:pointer;color:var(--neon-green);">' +
+                            '<input type="radio" name="nbCorrecta" value="' + i + '"> ✓' +
+                        '</label>' +
+                    '</div>';
+                }).join('') +
+                '<button id="btnAgregarNbPq" class="btn-primary" style="font-size:0.8rem;margin-top:8px;background:var(--neon-cyan);color:#000;width:100%;">+ AGREGAR PREGUNTA AL BANCO</button>' +
+            '</div>' +
+            '<button id="btnCrearBanco" class="btn-primary" style="width:100%;margin-bottom:20px;background:var(--neon-green);color:#000;font-weight:700;">CREAR BANCO CON PREGUNTAS</button>' +
+        '</div>';
+
+    function renderNbPreguntasTemp() {
+        var el = document.getElementById("nbPreguntasTemp");
+        if (!el) return;
+        el.innerHTML = bancoPreguntasTemp.length === 0 
+            ? '<p style="font-size:0.8rem;color:var(--texto-mutado);text-align:center;padding:10px 0;">// Aún no hay preguntas en el banco</p>'
+            : '<div>' +
+                '<p style="font-size:0.8rem;color:var(--neon-cyan);margin-bottom:8px;font-weight:700;">PREGUNTAS EN EL BANCO (' + bancoPreguntasTemp.length + '):</p>' +
+                '<div style="display:flex;flex-direction:column;gap:6px;">' +
+                    bancoPreguntasTemp.map(function(p, i) {
+                        return '<div style="background:var(--bg-inputs);padding:8px 10px;border-radius:4px;border-left:3px solid var(--neon-cyan);font-size:0.8rem;display:flex;justify-content:space-between;align-items:center;">' +
+                            '<span>' + (i+1) + '. ' + p.pregunta + (p.image ? ' <span style="color:var(--neon-green);">[img]</span>' : '') + '</span>' +
+                            '<button onclick="window._rmNbPq(' + i + ')" style="background:var(--neon-pink);color:#fff;border:none;border-radius:3px;padding:2px 8px;cursor:pointer;font-size:0.75rem;flex-shrink:0;margin-left:8px;">✕</button>' +
+                        '</div>';
+                    }).join('') +
+                '</div>' +
+            '</div>';
     }
-    document.getElementById("pqImagen").oninput = function() { showImgPrev(this.value.trim()); };
-    document.getElementById("btnPrevImg").onclick = function() { showImgPrev(document.getElementById("pqImagen").value.trim()); };
+    window._rmNbPq = function(i) { bancoPreguntasTemp.splice(i, 1); renderNbPreguntasTemp(); };
 
-    document.getElementById("pqImagen").oninput = function() {
-        var url = this.value.trim();
-        var prev = document.getElementById("pqImgPrev");
-        if (url) {
-            var img = document.createElement("img");
-            img.src = url;
-            img.style.cssText = "max-height:80px;max-width:160px;object-fit:contain;border-radius:4px;border:1px solid var(--borde);";
-            img.onerror = function() { prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.78rem;">URL invalida</p>'; };
-            prev.innerHTML = "";
-            prev.appendChild(img);
-        } else { prev.innerHTML = ""; }
+    // Contenido - Banco Automático
+    var banco = (typeof bancoPredeterminado30 !== 'undefined') ? bancoPredeterminado30 : [];
+    var secBancoAuto = cont.querySelector("#seccionBancoAuto");
+    var preguntasSeleccionadas = new Set();
+
+    function renderListaBancoAuto() {
+        var filtro = cont.querySelector("#filterBancoAutoTab").value.toLowerCase();
+        var listaEl = cont.querySelector("#listaBancoAutoTab");
+        listaEl.innerHTML = banco
+            .filter(function(p) { return p.pregunta.toLowerCase().indexOf(filtro) !== -1; })
+            .map(function(p) {
+                var isSelected = preguntasSeleccionadas.has(p.id);
+                return '<div style="background:rgba(0,212,255,0.02);border:1px solid rgba(0,212,255,0.1);border-radius:6px;padding:10px;margin-bottom:8px;display:flex;gap:10px;align-items:flex-start;">' +
+                    '<input type="checkbox" class="chk-pregunta-auto-tab" data-id="' + p.id + '" ' + (isSelected ? 'checked' : '') + ' style="margin-top:4px;cursor:pointer;width:18px;height:18px;">' +
+                    '<div style="flex:1;">' +
+                        '<p style="font-weight:700;font-size:0.9rem;margin-bottom:4px;">' + p.pregunta + '</p>' +
+                        '<p style="color:var(--texto-mutado);font-size:0.78rem;">' +
+                            p.opciones.map(function(o, i) { return '<span style="' + (i === p.correcta ? 'color:var(--neon-green);font-weight:700;' : '') + '">' + String.fromCharCode(65+i) + ') ' + o + '</span> '; }).join('') +
+                        '</p>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+
+        listaEl.querySelectorAll('.chk-pregunta-auto-tab').forEach(function(chk) {
+            chk.onchange = function() {
+                var id = parseInt(this.dataset.id, 10);
+                if (this.checked) {
+                    preguntasSeleccionadas.add(id);
+                } else {
+                    preguntasSeleccionadas.delete(id);
+                }
+            };
+        });
+    }
+
+    secBancoAuto.innerHTML =
+        '<div class="seccion-form">' +
+            '<h4 style="margin-bottom:12px;">CARGAR PREGUNTAS DEL BANCO AUTOMÁTICO</h4>' +
+            '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-bottom:10px;">Selecciona preguntas para agregar al banco. Total disponibles: <strong>' + banco.length + '</strong></p>' +
+            '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">' +
+                '<button id="btnSelectAllTab" class="btn-primary" style="background:var(--neon-green);color:#000;">SELECCIONAR TODO</button>' +
+                '<button id="btnDeselectAllTab" class="btn-primary" style="background:var(--neon-pink);color:#fff;">DESELECCIONAR TODO</button>' +
+                '<input type="text" id="filterBancoAutoTab" placeholder="Buscar pregunta..." class="input-dajox" style="flex:1;min-width:200px;">' +
+            '</div>' +
+            '<div id="listaBancoAutoTab" style="max-height:400px;overflow-y:auto;margin-bottom:12px;border:1px solid rgba(0,212,255,0.1);border-radius:6px;padding:10px;"></div>' +
+            '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">' +
+                '<span style="color:var(--neon-cyan);font-weight:700;font-size:0.9rem;">Seleccionadas: <span id="countSelected">0</span></span>' +
+            '</div>' +
+            '<button id="btnAgregarDelBancoAuto" class="btn-primary" style="width:100%;background:var(--neon-cyan);color:#000;font-weight:700;">+ AGREGAR SELECCIONADAS AL BANCO TEMPORAL</button>' +
+        '</div>';
+
+    document.getElementById("btnSelectAllTab").onclick = function() {
+        banco.forEach(function(p) { preguntasSeleccionadas.add(p.id); });
+        renderListaBancoAuto();
+        updateCountSelected();
+    };
+    document.getElementById("btnDeselectAllTab").onclick = function() {
+        preguntasSeleccionadas.clear();
+        renderListaBancoAuto();
+        updateCountSelected();
+    };
+    cont.querySelector("#filterBancoAutoTab").oninput = function() {
+        renderListaBancoAuto();
     };
 
-    /* Agregar desde banco predeterminado */
-    cont.querySelectorAll(".btn-banco-add[data-bancoidx]").forEach(function(btn) {
-        btn.onclick = function() {
-            var banco30 = (typeof bancoPredeterminado30 !== 'undefined') ? bancoPredeterminado30 : [];
-            var p = banco30[parseInt(btn.dataset.bancoidx)];
-            if (!p) return;
-            var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
-            if (!appState.clases[idx].preguntasIndividuales) appState.clases[idx].preguntasIndividuales = [];
-            appState.clases[idx].preguntasIndividuales.push({
-                id: "PQ-" + Date.now(), pregunta: p.pregunta, image: p.image || '',
-                opciones: p.opciones, correcta: p.correcta, puntos: 10
-            });
-            guardarDatos();
-            renderTabInstructor(claseId, "preguntas");
-        };
-    });
+    function updateCountSelected() {
+        var el = cont.querySelector("#countSelected");
+        if (el) el.textContent = preguntasSeleccionadas.size;
+    }
 
-    document.getElementById("btnAgregarPQ").onclick = function() {
-        var enunciado = document.getElementById("pqEnunciado").value.trim();
-        var imagen = document.getElementById("pqImagen").value.trim();
-        var opciones = [0,1,2,3].map(function(i) { return document.getElementById("pqOp"+i).value.trim(); });
-        var correctaRad = document.querySelector('input[name="pqCorrecta"]:checked');
-        var puntos = parseInt(document.getElementById("pqPuntos").value) || 10;
+    document.getElementById("btnAgregarDelBancoAuto").onclick = function() {
+        if (preguntasSeleccionadas.size === 0) return alert("Selecciona al menos una pregunta");
+        var preguntasSelec = banco.filter(function(p) { return preguntasSeleccionadas.has(p.id); });
+        preguntasSelec.forEach(function(p) {
+            bancoPreguntasTemp.push({
+                pregunta: p.pregunta,
+                image: p.image || '',
+                opciones: p.opciones.map(function(o) { return { texto: o, imagen: '' }; }),
+                correcta: p.correcta
+            });
+        });
+        alert("✓ Se agregaron " + preguntasSelec.length + " preguntas al banco temporal");
+        preguntasSeleccionadas.clear();
+        renderListaBancoAuto();
+        updateCountSelected();
+        renderNbPreguntasTemp();
+        // Cambiar a tab de crear propio
+        document.getElementById("tabCrearPropio").click();
+    };
+
+    // Tabs
+    document.getElementById("tabCrearPropio").onclick = function() {
+        secCrearPropio.style.display = "";
+        secBancoAuto.style.display = "none";
+        this.style.background = "var(--neon-cyan)";
+        this.style.color = "#000";
+        this.style.border = "none";
+        document.getElementById("tabBancoAuto").style.background = "transparent";
+        document.getElementById("tabBancoAuto").style.color = "var(--neon-cyan)";
+        document.getElementById("tabBancoAuto").style.border = "1px solid var(--neon-cyan)";
+    };
+    document.getElementById("tabBancoAuto").onclick = function() {
+        secCrearPropio.style.display = "none";
+        secBancoAuto.style.display = "";
+        this.style.background = "var(--neon-cyan)";
+        this.style.color = "#000";
+        this.style.border = "none";
+        document.getElementById("tabCrearPropio").style.background = "transparent";
+        document.getElementById("tabCrearPropio").style.color = "var(--neon-cyan)";
+        document.getElementById("tabCrearPropio").style.border = "1px solid var(--neon-cyan)";
+        renderListaBancoAuto();
+    };
+
+    // Eventos - Crear Propio
+    document.getElementById("nbPqImagen").oninput = function() {
+        var url = this.value.trim();
+        var prev = document.getElementById("nbPqImgPrev");
+        if (url) {
+            var img = document.createElement("img");
+            img.referrerPolicy = "no-referrer";
+            img.alt = "Vista previa";
+            img.src = url;
+            img.style.cssText = "max-height:70px;max-width:150px;object-fit:contain;border-radius:4px;border:1px solid var(--borde);";
+            img.onerror = function() {
+                prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.78rem;">URL no válida</p>';
+            };
+            prev.innerHTML = "";
+            prev.appendChild(img);
+        } else { 
+            prev.innerHTML = ""; 
+        }
+    };
+
+    document.getElementById("btnAgregarNbPq").onclick = function() {
+        var enunciado = document.getElementById("nbPqEnunciado").value.trim();
+        var imagen = document.getElementById("nbPqImagen").value.trim();
+        var opciones = [0,1,2,3].map(function(i) { return document.getElementById("nbOp"+i).value.trim(); });
+        var correctaRad = document.querySelector('input[name="nbCorrecta"]:checked');
         if (!enunciado) return alert("Escribe el enunciado");
         if (opciones.some(function(o) { return !o; })) return alert("Rellena todas las opciones");
         if (!correctaRad) return alert("Selecciona la opcion correcta");
-        var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
-        if (!appState.clases[idx].preguntasIndividuales) appState.clases[idx].preguntasIndividuales = [];
-        appState.clases[idx].preguntasIndividuales.push({
-            id: "PQ-" + Date.now(), pregunta: enunciado, image: imagen,
-            opciones: opciones, correcta: parseInt(correctaRad.value), puntos: puntos
+        bancoPreguntasTemp.push({ 
+            pregunta: enunciado, 
+            image: imagen, 
+            opciones: opciones.map(function(o) { return { texto: o, imagen: '' }; }), 
+            correcta: parseInt(correctaRad.value) 
         });
-        guardarDatos();
-        renderTabInstructor(claseId, "preguntas");
+        document.getElementById("nbPqEnunciado").value = "";
+        document.getElementById("nbPqImagen").value = "";
+        document.getElementById("nbPqImgPrev").innerHTML = "";
+        ['A','B','C','D'].forEach(function(l, i) { document.getElementById("nbOp"+i).value = ""; });
+        document.querySelector('input[name="nbCorrecta"]:checked').checked = false;
+        renderNbPreguntasTemp();
     };
 
-    cont.querySelectorAll(".btn-mini-rojo[data-pid]").forEach(function(btn) {
-        btn.onclick = function() {
-            if (!confirm("Eliminar pregunta?")) return;
-            var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
-            appState.clases[idx].preguntasIndividuales = appState.clases[idx].preguntasIndividuales.filter(function(p) { return p.id !== btn.dataset.pid; });
-            guardarDatos();
-            renderTabInstructor(claseId, "preguntas");
-        };
-    });
+    document.getElementById("btnCrearBanco").onclick = function() {
+        var titulo = document.getElementById("nbTitulo").value.trim();
+        if (!titulo) return alert("Ingresa un título para el banco");
+        if (bancoPreguntasTemp.length === 0) return alert("Agrega al menos una pregunta al banco");
+        
+        var puntajes = calcularPuntos(bancoPreguntasTemp.length, {});
+        bancoPreguntasTemp.forEach(function(p, i) {
+            p.puntos = puntajes[i];
+        });
+
+        var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
+        if (!appState.clases[idx].bancoPreguntas) appState.clases[idx].bancoPreguntas = [];
+        appState.clases[idx].bancoPreguntas.push({
+            id: "BANCO-" + Date.now(),
+            titulo: titulo,
+            preguntas: bancoPreguntasTemp
+        });
+        guardarDatos();
+        syncData();
+        
+        document.getElementById("nbTitulo").value = "";
+        bancoPreguntasTemp = [];
+        renderNbPreguntasTemp();
+        alert("✓ Banco '" + titulo + "' creado con " + bancoPreguntasTemp.length + " preguntas\n\nLas preguntas aparecerán en el botón '04 // VER PREGUNTAS Y EXAMENES'");
+    };
+
+    renderNbPreguntasTemp();
 }
 
 /* ── Tab Examenes ── */
@@ -445,13 +1070,18 @@ function renderTabExamenes(clase, cont, claseId) {
         var prev = document.getElementById("exPqImgPrev");
         if (url) {
             var img = document.createElement("img");
+            img.referrerPolicy = "no-referrer";
+            img.alt = "Vista previa de la imagen del examen";
             img.src = url;
             img.style.cssText = "max-height:70px;max-width:150px;object-fit:contain;border-radius:4px;border:1px solid var(--borde);";
-            img.onerror = function() { prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.78rem;">URL invalida</p>'; };
+            img.onerror = function() {
+                prev.innerHTML = '<p style="color:var(--neon-pink);font-size:0.78rem;">La URL no apunta directamente a una imagen. <a href="' + url.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:var(--neon-cyan);">Abrir URL</a></p>';
+            };
             prev.innerHTML = "";
             prev.appendChild(img);
         } else { prev.innerHTML = ""; }
     };
+    document.getElementById("exPqImagen").onchange = document.getElementById("exPqImagen").oninput;
 
     document.getElementById("btnAgregarExPq").onclick = function() {
         var enunciado = document.getElementById("exPqEnunciado").value.trim();
@@ -747,55 +1377,64 @@ function renderTabMontaje(clase, cont, claseId) {
 function renderTabResultados(clase, cont) {
     var log = clase.answersLog || [];
     var alumnos = [];
-    log.forEach(function(e) { if (alumnos.indexOf(e.alumno) === -1) alumnos.push(e.alumno); });
+    log.forEach(function(e) { if (e && e.alumno && alumnos.indexOf(e.alumno) === -1) alumnos.push(e.alumno); });
     if (alumnos.length === 0) {
         cont.innerHTML = '<p style="color:var(--texto-mutado);font-size:0.85rem;">// No hay resultados aun.</p>';
         return;
     }
-    var html = '<h4 style="margin-bottom:16px;">RESULTADOS POR APRENDIZ</h4>';
+    var html = '<h4 style="margin-bottom:16px;color:var(--neon-cyan);">RESULTADOS POR APRENDIZ</h4>';
     alumnos.forEach(function(alumno) {
-        var logA = log.filter(function(e) { return e.alumno === alumno; });
+        var logA = log.filter(function(e) { return e && e.alumno === alumno; });
         var pregInd = logA.filter(function(e) { return e.tipo === "pregunta_individual"; });
         var exTotal = logA.filter(function(e) { return e.tipo === "examen_total"; });
         var exPregInterna = logA.filter(function(e) { return e.tipo === "pregunta_examen_interna"; });
         var montLg = logA.filter(function(e) { return e.tipo === "montaje"; });
         var simLg = logA.filter(function(e) { return e.tipo === "simulador"; });
+        var totalPuntos = 0, correctas = 0;
+        pregInd.forEach(function(e) { if (e.esCorrecto) { correctas++; totalPuntos += (e.puntos || 0); } });
 
         html += '<div style="background:rgba(0,212,255,0.03);border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid rgba(0,212,255,0.1);">';
-        html += '<p style="font-weight:700;color:var(--neon-cyan);margin-bottom:14px;letter-spacing:0.06em;">APRENDIZ: ' + alumno + '</p>';
+        html += '<p style="font-weight:700;color:var(--neon-cyan);margin-bottom:6px;letter-spacing:0.06em;">👤 ' + (alumno || 'Desconocido') + '</p>';
+        html += '<p style="font-size:0.78rem;color:var(--texto-mutado);margin-bottom:12px;">Puntuación: <span style="color:var(--neon-purple);font-weight:700;">' + totalPuntos + ' pts</span> | Correctas: <span style="color:var(--neon-green);font-weight:700;">' + correctas + '/' + pregInd.length + '</span></p>';
 
         if (pregInd.length > 0) {
-            html += '<p style="font-weight:600;color:var(--neon-purple);margin-bottom:8px;font-size:0.85rem;">PREGUNTAS INDIVIDUALES</p>';
+            html += '<p style="font-weight:600;color:var(--neon-purple);margin:12px 0 8px;font-size:0.85rem;">📋 PREGUNTAS INDIVIDUALES</p>';
             pregInd.forEach(function(e) {
+                if (!e) return;
                 html += '<div class="item-resultado" style="border-left-color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">';
-                html += '<p style="font-size:0.85rem;font-weight:600;">' + e.enunciado + '</p>';
+                html += '<p style="font-size:0.85rem;font-weight:600;">' + (e.enunciado || 'Sin enunciado') + '</p>';
                 if (e.image) html += '<img src="' + e.image + '" style="max-height:50px;object-fit:contain;border-radius:3px;margin:3px 0;display:block;" onerror="this.style.display=\'none\'">';
-                if (e.opciones) {
-                    html += '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-top:4px;">Respondio: <span style="color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + e.opciones[e.seleccionada] + '</span>';
-                    if (!e.esCorrecto) html += ' | Correcta: <span style="color:var(--neon-green);font-weight:700;">' + e.opciones[e.correcta] + '</span>';
+                if (e.opciones && Array.isArray(e.opciones)) {
+                    var resp = e.opciones[e.seleccionada] || 'Opción desconocida';
+                    html += '<p style="font-size:0.8rem;color:var(--texto-mutado);margin-top:4px;">Respondió: <span style="color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + resp + '</span>';
+                    if (!e.esCorrecto && e.correcta !== undefined && e.opciones[e.correcta]) html += ' | Correcta: <span style="color:var(--neon-green);font-weight:700;">' + e.opciones[e.correcta] + '</span>';
                     html += '</p>';
                 }
-                html += '<p style="font-size:0.78rem;margin-top:3px;">' + (e.esCorrecto ? '✓ Correcto' : '✗ Incorrecto') + ' | ' + (e.puntos||0) + ' pts</p>';
+                html += '<p style="font-size:0.78rem;margin-top:3px;color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + (e.esCorrecto ? '✓ CORRECTO' : '✗ INCORRECTO') + ' | ' + (e.puntos || 0) + ' pts</p>';
                 html += '</div>';
             });
         }
 
         if (exTotal.length > 0) {
-            html += '<p style="font-weight:600;color:var(--neon-cyan);margin:10px 0 8px;font-size:0.85rem;">EXAMENES</p>';
+            html += '<p style="font-weight:600;color:var(--neon-cyan);margin:12px 0 8px;font-size:0.85rem;">📝 EXAMENES</p>';
             exTotal.forEach(function(exT) {
-                var det = exPregInterna.filter(function(e) { return e.idMeta === exT.idMeta; });
+                if (!exT) return;
+                var det = exPregInterna.filter(function(e) { return e && e.idMeta === exT.idMeta; });
+                var notaEx = exT.nota || 0;
                 html += '<div class="item-lista">';
                 html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
-                html += '<p style="font-weight:700;font-size:0.88rem;">' + exT.enunciado + '</p>';
-                html += '<span style="background:' + (exT.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';color:#000;padding:3px 10px;border-radius:10px;font-size:0.8rem;font-weight:800;">' + exT.nota + '%</span>';
+                html += '<p style="font-weight:700;font-size:0.88rem;">' + (exT.enunciado || 'Examen sin título') + '</p>';
+                html += '<span style="background:' + (notaEx >= 60 ? 'rgba(0,255,136,0.2)' : 'rgba(255,45,85,0.2)') + ';color:' + (notaEx >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';padding:4px 12px;border-radius:10px;font-size:0.8rem;font-weight:800;border:1px solid ' + (notaEx >= 60 ? 'rgba(0,255,136,0.4)' : 'rgba(255,45,85,0.4)') + ';">' + notaEx.toFixed(1) + '%</span>';
                 html += '</div>';
                 det.forEach(function(e, i) {
+                    if (!e) return;
                     html += '<div class="item-resultado" style="border-left-color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">';
-                    html += '<p style="font-size:0.82rem;font-weight:600;">' + (i+1) + '. ' + e.enunciado + '</p>';
+                    html += '<p style="font-size:0.82rem;font-weight:600;">' + (i+1) + '. ' + (e.enunciado || 'Pregunta sin título') + '</p>';
                     if (e.image) html += '<img src="' + e.image + '" style="max-height:50px;object-fit:contain;border-radius:3px;margin:3px 0;display:block;" onerror="this.style.display=\'none\'">';
-                    if (e.opciones) {
-                        html += '<p style="font-size:0.78rem;color:var(--texto-mutado);margin-top:3px;">Resp: <span style="color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + e.opciones[e.seleccionada] + '</span>';
-                        if (!e.esCorrecto) html += ' | OK: <span style="color:var(--neon-green);font-weight:700;">' + e.opciones[e.correcta] + '</span>';
+                    if (e.opciones && Array.isArray(e.opciones) && e.seleccionada !== undefined) {
+                        var respE = e.opciones[e.seleccionada] || 'Opción desconocida';
+                        html += '<p style="font-size:0.78rem;color:var(--texto-mutado);margin-top:3px;">Resp: <span style="color:' + (e.esCorrecto ? 'var(--neon-green)' : 'var(--neon-pink)') + ';font-weight:700;">' + respE + '</span>';
+                        if (!e.esCorrecto && e.correcta !== undefined && e.opciones[e.correcta]) html += ' | OK: <span style="color:var(--neon-green);font-weight:700;">' + e.opciones[e.correcta] + '</span>';
                         html += '</p>';
                     }
                     html += '</div>';
@@ -805,21 +1444,25 @@ function renderTabResultados(clase, cont) {
         }
 
         if (montLg.length > 0) {
-            html += '<p style="font-weight:600;color:var(--neon-purple);margin:10px 0 8px;font-size:0.85rem;">MONTAJES</p>';
+            html += '<p style="font-weight:600;color:var(--neon-purple);margin:12px 0 8px;font-size:0.85rem;">🔧 MONTAJES</p>';
             montLg.forEach(function(e) {
-                html += '<div class="item-resultado" style="border-left-color:' + (e.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';display:flex;justify-content:space-between;align-items:center;">';
-                html += '<p style="font-size:0.85rem;">' + e.enunciado + '</p>';
-                html += '<span style="font-size:0.8rem;font-weight:800;color:' + (e.nota >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';">' + e.nota + '% (' + e.correctas + '/' + e.total + ')</span>';
+                if (!e) return;
+                var notaM = e.nota || 0;
+                html += '<div class="item-resultado" style="border-left-color:' + (notaM >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';display:flex;justify-content:space-between;align-items:center;">';
+                html += '<div><p style="font-size:0.85rem;font-weight:600;">' + (e.enunciado || 'Montaje sin título') + '</p></div>';
+                html += '<span style="font-size:0.8rem;font-weight:800;color:' + (notaM >= 60 ? 'var(--neon-green)' : 'var(--neon-pink)') + ';white-space:nowrap;margin-left:10px;">' + notaM.toFixed(1) + '% (' + (e.correctas || 0) + '/' + (e.total || 0) + ')</span>';
                 html += '</div>';
             });
         }
 
         if (simLg.length > 0) {
-            html += '<p style="font-weight:600;color:var(--neon-green);margin:10px 0 8px;font-size:0.85rem;">SIMULACIONES</p>';
+            html += '<p style="font-weight:600;color:var(--neon-green);margin:12px 0 8px;font-size:0.85rem;">⚙️ SIMULACIONES</p>';
             simLg.forEach(function(e) {
+                if (!e) return;
+                var notaS = e.nota || 0;
                 html += '<div class="item-resultado" style="border-left-color:var(--neon-green);display:flex;justify-content:space-between;align-items:center;">';
-                html += '<p style="font-size:0.85rem;">' + e.enunciado + '</p>';
-                html += '<span style="font-size:0.8rem;font-weight:800;color:var(--neon-green);">' + e.nota + '%</span>';
+                html += '<div><p style="font-size:0.85rem;font-weight:600;">' + (e.enunciado || 'Simulación sin título') + '</p></div>';
+                html += '<span style="font-size:0.8rem;font-weight:800;color:var(--neon-green);white-space:nowrap;margin-left:10px;">' + notaS.toFixed(1) + '%</span>';
                 html += '</div>';
             });
         }
@@ -871,11 +1514,12 @@ function renderAprendizClases() {
     renderSyncBanner();
     var key = "dajox_joined_" + appState.user.email;
     var joined = JSON.parse(localStorage.getItem(key) || "[]");
-    var misClases = appState.clases.filter(function(c) { return joined.indexOf(c.id) !== -1; });
+    // Mostrar SOLO las clases a las que está vinculado (joined)
+    var misClases = appState.clases.filter(function(c) { return c && c.id && joined.indexOf(c.id) !== -1; });
     var cont = document.getElementById("listaClasesAprendiz");
     cont.innerHTML = "";
     if (misClases.length === 0) {
-        cont.innerHTML = '<p style="color:var(--texto-mutado);margin-top:14px;font-size:0.85rem;letter-spacing:0.06em;">// SIN CLASES ASIGNADAS. INGRESA EL CODIGO DE TU FICHA.</p>';
+        cont.innerHTML = '<p style="color:var(--texto-mutado);margin-top:14px;font-size:0.85rem;letter-spacing:0.06em;">// SIN CLASES VINCULADAS AUN. UTILIZA EL CODIGO DE ENLACE PARA VINCULARTE.</p>';
         return;
     }
     misClases.forEach(function(clase) {
@@ -911,39 +1555,86 @@ function abrirPanelAprendiz(claseId) {
     syncData();
     var clase = appState.clases.find(function(c) { return c.id === claseId; });
     if (!clase) return;
-    var panel = document.getElementById("contenedorPestanaFlotante");
-    panel.classList.remove("hidden");
-    panel.innerHTML =
-        '<div class="neon-overlay">' +
-            '<div class="neon-modal" style="max-width:880px;width:100%;">' +
-                '<button class="btn-cerrar-modal" id="btnCerrarAp">✕</button>' +
-                '<h3 style="margin-bottom:4px;">' + clase.nombre.toUpperCase() + '</h3>' +
-                '<p style="color:var(--texto-mutado);font-size:0.78rem;margin-bottom:18px;letter-spacing:0.06em;">FICHA: ' + clase.ficha + '</p>' +
-                '<div class="tabs-bar">' +
-                    '<button class="tab-ap btn-primary" data-tab="preguntas">PREGUNTAS</button>' +
-                    '<button class="tab-ap btn-primary" data-tab="examenes" style="background:var(--neon-cyan);color:#000;">EXAMENES</button>' +
-                    '<button class="tab-ap btn-primary" data-tab="montajes" style="background:var(--neon-purple);">MONTAJES</button>' +
-                    '<button class="tab-ap btn-primary" data-tab="historial" style="background:var(--neon-green);color:#000;">HISTORIAL</button>' +
-                '</div>' +
-                '<div id="tabApCont"></div>' +
-            '</div>' +
-        '</div>';
-
-    document.getElementById("btnCerrarAp").onclick = function() {
-        panel.innerHTML = "";
-        panel.classList.add("hidden");
+     
+    // AUTO-INSCRIBIR al aprendiz en la clase si no está ya inscrito
+    var key = "dajox_joined_" + appState.user.email;
+    var joined = JSON.parse(localStorage.getItem(key) || "[]");
+    if (joined.indexOf(claseId) === -1) {
+        if (typeof DajoxDB !== "undefined") {
+            DajoxDB.enrollStudent(claseId, appState.user.email);
+            DajoxDB.subscribeClass(claseId);
+        } else {
+            joined.push(claseId);
+            localStorage.setItem(key, JSON.stringify(joined));
+            var ci = appState.clases.findIndex(function(c) { return c.id === claseId; });
+            if (ci !== -1) {
+                if (!appState.clases[ci].inscritos) appState.clases[ci].inscritos = [];
+                if (appState.clases[ci].inscritos.indexOf(appState.user.email) === -1) {
+                    appState.clases[ci].inscritos.push(appState.user.email);
+                    guardarDatos();
+                }
+            }
+        }
+    }
+     
+    // Crear ID único para esta pestaña
+    var pestaId = "pestaña-ap-" + claseId + "-" + Date.now();
+    
+    // Crear overlay y modal únicos
+    var overlay = document.createElement("div");
+    overlay.className = "neon-overlay";
+    overlay.id = pestaId;
+    
+    var modal = document.createElement("div");
+    modal.className = "neon-modal";
+    modal.style.maxWidth = "700px";
+    
+    var btnCerrar = document.createElement("button");
+    btnCerrar.className = "btn-cerrar-modal";
+    btnCerrar.textContent = "✕";
+    
+    var header = document.createElement("div");
+    header.innerHTML = 
+        '<h3 style="margin-bottom:4px;">' + clase.nombre.toUpperCase() + '</h3>' +
+        '<p style="color:var(--texto-mutado);font-size:0.78rem;margin-bottom:18px;letter-spacing:0.06em;">FICHA: ' + clase.ficha + '</p>';
+    
+    var tabsBar = document.createElement("div");
+    tabsBar.className = "tabs-bar";
+    tabsBar.innerHTML =
+        '<button class="tab-ap-btn btn-primary" data-tab="preguntas" style="background:linear-gradient(135deg,#7c3aed,#a855f7);">PREGUNTAS</button>' +
+        '<button class="tab-ap-btn btn-primary" data-tab="examenes" style="background:var(--neon-cyan);color:#000;">EXAMENES</button>' +
+        '<button class="tab-ap-btn btn-primary" data-tab="montajes" style="background:var(--neon-purple);">MONTAJES</button>' +
+        '<button class="tab-ap-btn btn-primary" data-tab="historial" style="background:var(--neon-green);color:#000;">HISTORIAL</button>';
+    
+    var contenido = document.createElement("div");
+    contenido.id = "cont-ap-" + pestaId;
+    
+    modal.appendChild(btnCerrar);
+    modal.appendChild(header);
+    modal.appendChild(tabsBar);
+    modal.appendChild(contenido);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    // Evento cerrar
+    btnCerrar.onclick = function() {
+        document.body.removeChild(overlay);
         renderAprendizClases();
     };
-    panel.querySelectorAll(".tab-ap").forEach(function(t) {
-        t.onclick = function() { renderTabAprendiz(claseId, this.dataset.tab); };
+    
+    // Eventos de tabs
+    tabsBar.querySelectorAll(".tab-ap-btn").forEach(function(t) {
+        t.onclick = function() { renderTabAprendizIndependiente(claseId, this.dataset.tab, contenido.id); };
     });
-    renderTabAprendiz(claseId, "preguntas");
+    
+    // Renderizar contenido inicial
+    renderTabAprendizIndependiente(claseId, "preguntas", contenido.id);
 }
 
-function renderTabAprendiz(claseId, tab) {
+function renderTabAprendizIndependiente(claseId, tab, contenedorId) {
     syncData();
     var clase = appState.clases.find(function(c) { return c.id === claseId; });
-    var cont = document.getElementById("tabApCont");
+    var cont = document.getElementById(contenedorId);
     if (!cont) return;
     if (tab === "preguntas") renderTabApPreguntas(clase, cont, claseId);
     else if (tab === "examenes") renderTabApExamenes(clase, cont, claseId);
@@ -986,13 +1677,13 @@ function renderTabApPreguntas(clase, cont, claseId) {
         (pendientes.length - 1 > 0 ? '<p style="text-align:center;color:var(--texto-mutado);font-size:0.82rem;margin-top:10px;">' + (pendientes.length-1) + ' pregunta(s) restantes</p>' : '');
 
     document.getElementById("btnConfirmarResp").onclick = function() {
-        var checked = document.querySelector('input[name="respAp"]:checked');
+        var checked = cont.querySelector('input[name="respAp"]:checked');
         if (!checked) return alert("Selecciona una opcion.");
         var seleccionada = parseInt(checked.value);
         var esCorrecto = seleccionada === pregunta.correcta;
 
         document.getElementById("btnConfirmarResp").disabled = true;
-        document.querySelectorAll('input[name="respAp"]').forEach(function(r) { r.disabled = true; });
+        cont.querySelectorAll('input[name="respAp"]').forEach(function(r) { r.disabled = true; });
 
         pregunta.opciones.forEach(function(_, i) {
             var lbl = document.getElementById("lblOp_" + i);
@@ -1013,6 +1704,21 @@ function renderTabApPreguntas(clase, cont, claseId) {
             '<p style="font-weight:800;color:' + (esCorrecto ? "var(--neon-green)" : "var(--neon-pink)") + ';font-size:1rem;letter-spacing:0.06em;">' + (esCorrecto ? "CORRECTO" : "INCORRECTO") + '</p>' +
             '<p style="font-size:0.85rem;color:var(--texto-mutado);margin-top:5px;">' + (esCorrecto ? "+" + pregunta.puntos + " puntos" : "Correcta: " + String.fromCharCode(65+pregunta.correcta) + ". " + pregunta.opciones[pregunta.correcta]) + '</p>';
         document.getElementById("cardPregunta").appendChild(banner);
+        var nextButton = null;
+        var hasMore = pendientes.length > 1;
+        if (hasMore) {
+            nextButton = document.createElement("button");
+            nextButton.className = "btn-primary";
+            nextButton.style.cssText = "width:100%;margin-top:16px;background:var(--neon-green);color:#000;";
+            nextButton.textContent = "SIGUIENTE PREGUNTA";
+            nextButton.onclick = function() {
+                syncData();
+                var claseActual = appState.clases.find(function(c) { return c.id === claseId; });
+                if (!claseActual) return;
+                renderTabApPreguntas(claseActual, cont, claseId);
+            };
+            document.getElementById("cardPregunta").appendChild(nextButton);
+        }
 
         var entry = {
             alumno: appState.user.email, tipo: "pregunta_individual",
@@ -1036,7 +1742,12 @@ function renderTabApPreguntas(clase, cont, claseId) {
             }
         }
         syncData();
-        setTimeout(function() { renderTabAprendiz(claseId, "preguntas"); }, 2200);
+        if (!hasMore) {
+            var endMessage = document.createElement("div");
+            endMessage.style.cssText = "margin-top:16px;padding:14px;border-radius:10px;background:rgba(0,212,255,0.05);border:1px solid rgba(0,212,255,0.1);";
+            endMessage.innerHTML = '<p style="font-weight:700;color:var(--neon-cyan);">Has terminado todas las preguntas disponibles.</p><p style="color:var(--texto-mutado);font-size:0.85rem;">Revisa tu historial para ver tus respuestas.</p>';
+            document.getElementById("cardPregunta").appendChild(endMessage);
+        }
     };
 }
 
@@ -1098,16 +1809,16 @@ function renderTabApMontajes(clase, cont, claseId) {
     html += '</div>';
     cont.innerHTML = html;
     cont.querySelectorAll(".btn-iniciar-mt").forEach(function(btn) {
-        btn.onclick = function() { iniciarMontajeAp(claseId, btn.dataset.mid); };
+        btn.onclick = function() { iniciarMontajeAp(claseId, btn.dataset.mid, cont); };
     });
 }
 
-function iniciarMontajeAp(claseId, montajeId) {
+function iniciarMontajeAp(claseId, montajeId, cont) {
     syncData();
     var clase = appState.clases.find(function(c) { return c.id === claseId; });
     var montaje = (clase.montajes || []).find(function(m) { return m.id === montajeId; });
     if (!montaje) return;
-    var cont = document.getElementById("tabApCont");
+    if (!cont) { cont = document.getElementById("tabApCont"); }
     var piezasShuffled = montaje.piezas.slice().sort(function() { return Math.random() - 0.5; });
     var placements = {};  /* slotId -> piezaId */
     var canvasW = montaje.canvasW || 700;
@@ -1161,7 +1872,7 @@ function iniciarMontajeAp(claseId, montajeId) {
         '</div>' +
         '<button id="btnEnviarMontajeAp" class="btn-accion btn-accion-verde" style="width:100%;max-width:' + canvasW + 'px;margin:0 auto;display:block;">ENVIAR MONTAJE</button>';
 
-    document.getElementById("btnVolverMt").onclick = function() { renderTabAprendiz(claseId, "montajes"); };
+    document.getElementById("btnVolverMt").onclick = function() { renderTabApMontajes(clase, cont, claseId); };
 
     /* ── Drag & Drop ── */
     var dragPiezaId = null;
@@ -1269,7 +1980,7 @@ function iniciarMontajeAp(claseId, montajeId) {
             });
             localStorage.setItem("dajox_clases_v3", JSON.stringify(clases));
             syncData();
-            renderTabAprendiz(claseId, "montajes");
+            renderTabApMontajes(clase, cont, claseId);
         };
 
         /* Reemplazar botón por resultado + continuar */
