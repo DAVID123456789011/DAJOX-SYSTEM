@@ -6,17 +6,13 @@
 
 /* ── ID del salon (auto-detectado del hostname) ── */
 function getDajoxSalonId() {
-    var host = window.location.hostname || "localhost";
-    if (host === "localhost" || host === "127.0.0.1") {
-        /* En local, usar un ID guardado o generarlo */
-        var sid = localStorage.getItem("dajox_sid");
-        if (!sid) {
-            sid = "local-" + Math.random().toString(36).substr(2, 6);
-            localStorage.setItem("dajox_sid", sid);
-        }
-        return sid;
+    var query = new URLSearchParams(window.location.search);
+    var customSalon = query.get("salon");
+    if (customSalon) return customSalon.trim();
+    var host = window.location.hostname || "";
+    if (host === "localhost" || host === "127.0.0.1" || host === "") {
+        return "dajox-local";
     }
-    /* Para GitHub Pages: "david123456789011.github.io" → "david123456789011" */
     return host.split(".")[0];
 }
 
@@ -85,6 +81,15 @@ function mqttConnect(onData, onStatus) {
                     if (merged && _onMqttData) {
                         _onMqttData(DajoxDB.toArray());
                     }
+                } else {
+                    /* Fallback sin DajoxDB: fusionar clase individual en storage legacy */
+                    var existing = JSON.parse(localStorage.getItem("dajox_clases_v3") || "[]");
+                    var seen = {};
+                    existing.forEach(function(c) { if (c && c.id) seen[c.id] = c; });
+                    seen[data.id] = data;
+                    var mergedList = Object.values(seen);
+                    localStorage.setItem("dajox_clases_v3", JSON.stringify(mergedList));
+                    if (_onMqttData) _onMqttData(mergedList);
                 }
                 return;
             }
@@ -137,11 +142,11 @@ function mqttPublishClass(cls) {
 /* ── Publicar array completo (compatibilidad legacy) ── */
 function mqttPublish(clases) {
     if (!_mqtt || !_mqttOk) return;
-    /* Publicar cada clase por su propio topic */
+    var array = Array.isArray(clases) ? clases : [];
+    try { _mqtt.publish(DAJOX_TOPIC, JSON.stringify(array), { qos: 1, retain: true }); } catch (e) {}
+    /* Publicar cada clase por su propio topic cuando existe DajoxDB para compatibilidad */
     if (typeof DajoxDB !== "undefined") {
         clases.forEach(function(cls) { if (cls && cls.id) mqttPublishClass(cls); });
-    } else {
-        _mqtt.publish(DAJOX_TOPIC, JSON.stringify(clases), { qos: 1, retain: true });
     }
 }
 
