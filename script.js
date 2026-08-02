@@ -699,7 +699,7 @@ function verAprendicesInscritos(claseId) {
     overlay.querySelector("#btnCerrarAI").onclick = function() { document.body.removeChild(overlay); };
 }
 
-function abrirPanelInstructor(claseId, tabInicial) {
+function abrirPanelInstructor(claseId, tabInicial, examType) {
     syncData();
     var clase = appState.clases.find(function(c) { return c.id === claseId; });
     if (!clase) return;
@@ -738,18 +738,42 @@ function abrirPanelInstructor(claseId, tabInicial) {
     btnCerrar.onclick = function() {
         document.body.removeChild(overlay);
     };
+
+    if (tabInicial === "examenes" && !examType) {
+        var chooser = document.createElement("div");
+        chooser.style.cssText = "position:absolute;inset:0;background:rgba(0,0,0,0.65);display:flex;align-items:center;justify-content:center;padding:20px;";
+        chooser.innerHTML =
+            '<div style="background:var(--bg-main);border:1px solid rgba(0,212,255,0.2);border-radius:14px;padding:24px;max-width:420px;width:100%;text-align:center;">' +
+                '<h3 style="margin-bottom:12px;color:var(--neon-cyan);">Selecciona el tipo de examen</h3>' +
+                '<p style="color:var(--texto-mutado);font-size:0.88rem;margin-bottom:20px;">Elige entre un examen de respuestas múltiples o un examen de ensamble de equipos.</p>' +
+                '<div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center;">' +
+                    '<button id="btnExamMultiple" class="btn-primary" style="flex:1;min-width:150px;">Respuestas múltiples</button>' +
+                    '<button id="btnExamEnsamble" class="btn-primary" style="flex:1;min-width:150px;">Ensamble de equipos</button>' +
+                '</div>' +
+            '</div>';
+        overlay.appendChild(chooser);
+        chooser.querySelector("#btnExamMultiple").onclick = function() {
+            overlay.removeChild(chooser);
+            renderTabInstructorIndependiente(claseId, "examenes", contenido.id, "multiple_choice");
+        };
+        chooser.querySelector("#btnExamEnsamble").onclick = function() {
+            overlay.removeChild(chooser);
+            renderTabInstructorIndependiente(claseId, "examenes", contenido.id, "ensamble");
+        };
+        return;
+    }
     
     // Renderizar contenido
-    renderTabInstructorIndependiente(claseId, tabInicial, contenido.id);
+    renderTabInstructorIndependiente(claseId, tabInicial, contenido.id, examType);
 }
 
-function renderTabInstructorIndependiente(claseId, tab, contenedorId) {
+function renderTabInstructorIndependiente(claseId, tab, contenedorId, examType) {
     syncData();
     var clase = appState.clases.find(function(c) { return c.id === claseId; });
     var cont = document.getElementById(contenedorId);
     if (!cont) return;
     if (tab === "preguntas") renderTabPreguntas(clase, cont, claseId);
-    else if (tab === "examenes") renderTabExamenes(clase, cont, claseId);
+    else if (tab === "examenes") renderTabExamenes(clase, cont, claseId, examType);
     else if (tab === "montaje") renderTabMontaje(clase, cont, claseId);
     else if (tab === "resultados") renderTabResultados(clase, cont);
 }
@@ -910,12 +934,17 @@ function renderTabPreguntas(clase, cont, claseId) {
     document.getElementById("btnAgregarDelBancoAuto").onclick = function() {
         if (preguntasSeleccionadas.size === 0) return alert("Selecciona al menos una pregunta");
         var preguntasSelec = banco.filter(function(p) { return preguntasSeleccionadas.has(p.id); });
+        var defaultPoints = Math.max(1, Math.floor(100 / preguntasSelec.length));
         preguntasSelec.forEach(function(p) {
             bancoPreguntasTemp.push({
+                id: p.id || "PREG-" + Date.now() + "-" + Math.random().toString(36).substr(2, 5),
                 pregunta: p.pregunta,
                 image: p.image || '',
-                opciones: p.opciones.map(function(o) { return { texto: o, imagen: '' }; }),
-                correcta: p.correcta
+                opciones: (p.opciones || []).map(function(o) {
+                    return typeof o === 'string' ? { texto: o, imagen: '' } : { texto: o.texto || '', imagen: o.imagen || '' };
+                }),
+                correcta: p.correcta,
+                puntos: p.puntos || defaultPoints
             });
         });
         alert("✓ Se agregaron " + preguntasSelec.length + " preguntas al banco temporal");
@@ -979,16 +1008,18 @@ function renderTabPreguntas(clase, cont, claseId) {
         if (opciones.some(function(o) { return !o; })) return alert("Rellena todas las opciones");
         if (!correctaRad) return alert("Selecciona la opcion correcta");
         bancoPreguntasTemp.push({ 
+            id: "PREG-" + Date.now() + "-" + Math.random().toString(36).substr(2, 5),
             pregunta: enunciado, 
             image: imagen, 
             opciones: opciones.map(function(o) { return { texto: o, imagen: '' }; }), 
-            correcta: parseInt(correctaRad.value) 
+            correcta: parseInt(correctaRad.value),
+            puntos: 0
         });
         document.getElementById("nbPqEnunciado").value = "";
         document.getElementById("nbPqImagen").value = "";
         document.getElementById("nbPqImgPrev").innerHTML = "";
-        ['A','B','C','D'].forEach(function(l, i) { document.getElementById("nbOp"+i).value = ""; });
-        document.querySelector('input[name="nbCorrecta"]:checked').checked = false;
+        [0,1,2,3].forEach(function(i) { document.getElementById("nbOp"+i).value = ""; });
+        document.querySelectorAll('input[name="nbCorrecta"]').forEach(function(r) { r.checked = false; });
         renderNbPreguntasTemp();
     };
 
@@ -1012,19 +1043,25 @@ function renderTabPreguntas(clase, cont, claseId) {
         guardarDatos();
         syncData();
         
+        var preguntasCreadas = bancoPreguntasTemp.length;
         document.getElementById("nbTitulo").value = "";
         bancoPreguntasTemp = [];
         renderNbPreguntasTemp();
-        alert("✓ Banco '" + titulo + "' creado con " + bancoPreguntasTemp.length + " preguntas\n\nLas preguntas aparecerán en el botón '04 // VER PREGUNTAS Y EXAMENES'");
+        alert("✓ Banco '" + titulo + "' creado con " + preguntasCreadas + " preguntas\n\nLas preguntas aparecerán en el botón '04 // VER PREGUNTAS Y EXAMENES'");
     };
 
     renderNbPreguntasTemp();
 }
 
 /* ── Tab Examenes ── */
-function renderTabExamenes(clase, cont, claseId) {
+function renderTabExamenes(clase, cont, claseId, examType) {
+    var tipoExamen = examType || "multiple_choice";
     var examenes = clase.examenesCreadosEstructurados || [];
     var exPregTemp = [];
+    var examTitulo = tipoExamen === "ensamble" ? "CREAR EXAMEN ENSAMBLE DE EQUIPOS" : "CREAR EXAMEN DE RESPUESTAS MÚLTIPLES";
+    var examDescripcion = tipoExamen === "ensamble"
+        ? "La evaluación de ensamble tendrá una puntuación total fija de 100 puntos."
+        : "La evaluación de respuestas múltiples tendrá una puntuación total fija de 100 puntos.";
 
     var listaHTML = examenes.map(function(ex) {
         return '<div class="item-lista">' +
@@ -1041,7 +1078,8 @@ function renderTabExamenes(clase, cont, claseId) {
 
     cont.innerHTML =
         '<div class="seccion-form">' +
-            '<h4 style="margin-bottom:12px;">CREAR EXAMEN</h4>' +
+            '<h4 style="margin-bottom:12px;">' + examTitulo + '</h4>' +
+            '<p style="font-size:0.82rem;color:var(--texto-mutado);margin-bottom:12px;">' + examDescripcion + ' Las respuestas correctas se calificarán en porcentaje sobre 100.</p>' +
             '<input type="text" id="exNombre" placeholder="// Nombre del examen" class="input-dajox" style="width:100%;margin-bottom:10px;">' +
             '<div id="exPregTemp" style="margin-bottom:10px;"></div>' +
             '<div class="sub-form">' +
@@ -1122,10 +1160,12 @@ function renderTabExamenes(clase, cont, claseId) {
         if (!appState.clases[idx].examenesCreadosEstructurados) appState.clases[idx].examenesCreadosEstructurados = [];
         appState.clases[idx].examenesCreadosEstructurados.push({
             idExamen: "EX-" + Date.now(), nombre: nombre,
-            tipo: "multiple_choice", preguntas: exPregTemp.slice()
+            tipo: tipoExamen,
+            puntajeTotal: 100,
+            preguntas: exPregTemp.slice()
         });
         guardarDatos();
-        renderTabInstructor(claseId, "examenes");
+        renderTabInstructorIndependiente(claseId, "examenes", contenedorId, tipoExamen);
     };
 
     cont.querySelectorAll(".btn-mini-azul[data-eid]").forEach(function(btn) {
@@ -1137,7 +1177,7 @@ function renderTabExamenes(clase, cont, claseId) {
             var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
             appState.clases[idx].examenesCreadosEstructurados = appState.clases[idx].examenesCreadosEstructurados.filter(function(e) { return e.idExamen !== btn.dataset.eid; });
             guardarDatos();
-            renderTabInstructor(claseId, "examenes");
+            renderTabExamenes(clase, cont, claseId, tipoExamen);
         };
     });
 }
@@ -1153,10 +1193,14 @@ function verDetalleExamen(claseId, examId) {
         return '<div class="item-lista" style="border-left:2px solid var(--neon-cyan);">' +
             '<p style="font-weight:700;margin-bottom:8px;">' + (idx+1) + '. ' + p.pregunta + '</p>' +
             (p.image ? '<img src="' + p.image + '" style="max-height:100px;max-width:100%;object-fit:contain;border-radius:4px;margin-bottom:8px;display:block;" onerror="this.style.display=\'none\'">' : '') +
-            p.opciones.map(function(op, i) {
+            (p.opciones || []).map(function(op, i) {
+                var opTexto = typeof op === 'string' ? op : (op && op.texto ? op.texto : '');
+                var opImagen = (typeof op === 'object' && op !== null) ? (op.imagen || '') : '';
                 return '<div style="padding:5px 10px;border-radius:4px;margin-bottom:4px;font-size:0.85rem;' +
                     (i === p.correcta ? 'background:rgba(0,255,136,0.1);border-left:2px solid var(--neon-green);font-weight:700;color:var(--neon-green);' : 'background:rgba(255,255,255,0.02);') + '">' +
-                    String.fromCharCode(65+i) + ') ' + op + (i === p.correcta ? ' ✓' : '') + '</div>';
+                    '<div>' + String.fromCharCode(65+i) + ') ' + opTexto + (i === p.correcta ? ' ✓' : '') + '</div>' +
+                    (opImagen ? '<div style="margin-top:4px;"><a href="' + opImagen.replace(/"/g, '&quot;') + '" target="_blank" rel="noopener" style="color:var(--neon-cyan);font-size:0.82rem;">[imagen]</a></div>' : '') +
+                '</div>';
             }).join('') +
         '</div>';
     }).join('');
@@ -1373,7 +1417,7 @@ function renderTabMontaje(clase, cont, claseId) {
             })
         });
         guardarDatos();
-        renderTabInstructor(claseId, "montaje");
+        renderTabMontaje(clase, cont, claseId);
     };
 
     cont.querySelectorAll(".btn-mini-rojo[data-mid]").forEach(function(btn) {
@@ -1382,7 +1426,7 @@ function renderTabMontaje(clase, cont, claseId) {
             var idx = appState.clases.findIndex(function(c) { return c.id === claseId; });
             appState.clases[idx].montajes = appState.clases[idx].montajes.filter(function(m) { return m.id !== btn.dataset.mid; });
             guardarDatos();
-            renderTabInstructor(claseId, "montaje");
+            renderTabMontaje(clase, cont, claseId);
         };
     });
 }
@@ -1660,8 +1704,25 @@ function renderTabAprendizIndependiente(claseId, tab, contenedorId) {
 function renderTabApPreguntas(clase, cont, claseId) {
     var log = (clase.answersLog || []).filter(function(e) { return e.alumno === appState.user.email && e.tipo === "pregunta_individual"; });
     var respondidas = log.map(function(e) { return e.idMeta; });
-    var pendientes = (clase.preguntasIndividuales || []).filter(function(p) { return respondidas.indexOf(p.id) === -1; });
-    var total = (clase.preguntasIndividuales || []).length;
+    var bancoPreguntas = [];
+    var guardarIdGenerado = false;
+    (clase.bancoPreguntas || []).forEach(function(banco) {
+        (banco.preguntas || []).forEach(function(p, index) {
+            if (!p.id) {
+                p.id = "PREG-" + claseId + "-" + index + "-" + Math.random().toString(36).substr(2, 5);
+                guardarIdGenerado = true;
+            }
+            if (p.puntos === undefined || p.puntos === null) {
+                p.puntos = 0;
+                guardarIdGenerado = true;
+            }
+            bancoPreguntas.push(p);
+        });
+    });
+    if (guardarIdGenerado) guardarDatos();
+    var allPreguntas = (clase.preguntasIndividuales || []).concat(bancoPreguntas);
+    var pendientes = allPreguntas.filter(function(p) { return p && p.id && respondidas.indexOf(p.id) === -1; });
+    var total = allPreguntas.length;
 
     if (pendientes.length === 0) {
         cont.innerHTML = '<div style="text-align:center;padding:40px;"><p style="font-size:2rem;margin-bottom:10px;">✓</p><p style="font-weight:700;color:var(--neon-green);letter-spacing:0.06em;">TODAS LAS PREGUNTAS COMPLETADAS</p><p style="color:var(--texto-mutado);font-size:0.85rem;margin-top:6px;">Revisa tu historial para ver tus resultados.</p></div>';
@@ -1670,10 +1731,14 @@ function renderTabApPreguntas(clase, cont, claseId) {
 
     var pregunta = pendientes[0];
     var opcionesHTML = pregunta.opciones.map(function(op, i) {
-        var esImg = op.startsWith("http") || op.startsWith("data:image");
+        var texto = typeof op === 'string' ? op : (op && op.texto ? op.texto : '');
+        var imagen = (typeof op === 'object' && op !== null) ? (op.imagen || '') : '';
         return '<label id="lblOp_' + i + '" style="background:rgba(255,255,255,0.02);border:1px solid rgba(0,212,255,0.15);padding:12px 14px;border-radius:8px;display:flex;align-items:center;gap:10px;cursor:pointer;transition:all 0.2s;">' +
             '<input type="radio" name="respAp" value="' + i + '" style="cursor:pointer;flex-shrink:0;">' +
-            (esImg ? '<img src="' + op + '" style="max-height:80px;border-radius:4px;" onerror="this.style.display=\'none\'">' : '<span>' + String.fromCharCode(65+i) + '. ' + op + '</span>') +
+            '<div style="flex:1;display:flex;flex-direction:column;gap:6px;">' +
+                '<span>' + String.fromCharCode(65+i) + '. ' + texto + '</span>' +
+                (imagen ? '<img src="' + imagen + '" style="max-height:80px;border-radius:4px;display:block;" onerror="this.style.display=\'none\'">' : '') +
+            '</div>' +
         '</label>';
     }).join('');
 
