@@ -177,9 +177,23 @@ function mqttStatusCfg(status) {
     return                                { color: "var(--neon-pink)",   text: "SIN CONEXION",  border: "rgba(255,45,85,0.3)",  bg: "rgba(255,45,85,0.04)" };
 }
 
+function renderHeaderStatus() {
+    var status = _mqttStatus || "offline";
+    var cfg    = mqttStatusCfg(status);
+    var header = document.getElementById("dashboardSyncStatus");
+    if (!header) return;
+    header.innerHTML =
+        '<span style="display:flex;align-items:center;gap:8px;color:' + cfg.color + ';font-size:0.82rem;line-height:1;">' +
+            '<span style="width:10px;height:10px;border-radius:50%;background:' + cfg.color + ';box-shadow:0 0 6px ' + cfg.color + ';flex-shrink:0;"></span>' +
+            '<strong style="font-weight:700;">' + cfg.text + '</strong>' +
+        '</span>';
+}
+
 function renderSyncBanner() {
     var existing = document.getElementById("dajoxSyncBanner");
     if (existing) existing.remove();
+
+    renderHeaderStatus();
 
     var status = _mqttStatus || "offline";
     var cfg    = mqttStatusCfg(status);
